@@ -18,3 +18,12 @@
 python3 -m pip install PySide6
 python3 app.py
 ```
+
+## 打包 macOS 应用
+
+```bash
+python3 -m pip install PyInstaller
+python3 -m PyInstaller --windowed --name "季节笔记" --icon "季节笔记.icns" --clean -y app.py
+```
+
+生成的应用位于 `dist/季节笔记.app`。
