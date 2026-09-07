@@ -30,7 +30,9 @@ class StorageTests(unittest.TestCase):
             root = Path(directory)
             legacy, target = root / "legacy.json", root / "notes.json"
             legacy.write_text("[]")
-            with patch.multiple(storage, DATA=target, LEGACY_DATA=legacy, ATTACHMENTS_DIR=root / "attachments"):
+            with patch.multiple(
+                storage, DATA=target, LEGACY_DATA=legacy, ATTACHMENTS_DIR=root / "attachments"
+            ):
                 storage.ensure_storage()
                 self.assertEqual(target.read_text(), "[]")
                 target.write_text('[{"id":"kept"}]')
