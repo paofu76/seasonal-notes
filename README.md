@@ -15,15 +15,48 @@
 ## 运行
 
 ```bash
-python3 -m pip install PySide6
-python3 app.py
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[dev]'
+python -m seasonal_notes
 ```
 
 ## 打包 macOS 应用
 
 ```bash
-python3 -m pip install PyInstaller
-python3 -m PyInstaller --windowed --name "季节笔记" --icon "季节笔记.icns" --clean -y app.py
+python -m PyInstaller --clean -y 季节笔记.spec
 ```
 
 生成的应用位于 `dist/季节笔记.app`。
+
+## 工程结构
+
+```text
+app.py                         兼容启动入口
+seasonal_notes/
+  application.py               Qt 应用生命周期
+  storage.py                   存储、首次迁移和原子写入（不依赖 Qt）
+  themes.py                    四季配色配置
+  ui/
+    main_window.py             主窗口、对话框与笔记操作
+    editor.py                  富文本编辑器
+    table_preview.py           表格预览
+    animations.py              四季动画与胶囊
+tests/                         隔离存储测试
+.github/workflows/tests.yml    GitHub 自动检查
+pyproject.toml                 安装入口、依赖和开发工具配置
+```
+
+## 验证与开发约定
+
+```sh
+python -m unittest discover -s tests -v
+ruff check seasonal_notes tests
+python -m compileall -q seasonal_notes
+```
+
+依赖以 `pyproject.toml` 为准。PyCharm 使用 `.venv` 解释器，运行模块 `seasonal_notes`。保留 `python app.py` 和安装后的 `seasonal-notes` 启动方式。
+
+数据在 `~/Library/Application Support/季节笔记/`，开发测试用 `SEASONAL_NOTES_DATA_DIR` 指向临时目录。首次迁移不覆盖已有数据，损坏数据不会静默当作空列表。构建不包含个人笔记或附件。
+
+测试目前覆盖存储迁移、损坏文件和持久化，不代表完整 GUI 验收。新增功能将持久化逻辑放在 `storage.py`、界面放在 `ui/`，并增加对应验证。主窗口仍包含日期和表格对话框，后续可随功能迭代进一步拆分。不要提交个人笔记、附件、密钥、虚拟环境和打包产物。

@@ -3,3 +3,21 @@ __pycache__/
 notes.json
 season-notes-ui.png
 .DS_Store
+.idea/
+.venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.env
+.env.*
+attachments/
+*.local.py
+app *.py
+plugins/
+senior-test-engineer/
+static/
+templates/
+*.iconset/
+season-notes-animated-ui.png
