@@ -47,5 +47,14 @@ app = BUNDLE(
     coll,
     name='季节笔记.app',
     icon='季节笔记.icns',
-    bundle_identifier=None,
+    bundle_identifier='com.paofu.seasonalnotes',
+    info_plist={
+        'CFBundleDisplayName': '季节笔记',
+        'CFBundleName': '季节笔记',
+        'CFBundleShortVersionString': '0.3.0',
+        'CFBundleVersion': '1',
+        'LSApplicationCategoryType': 'public.app-category.productivity',
+        'NSHighResolutionCapable': True,
+        'NSHumanReadableCopyright': 'Copyright © 2026 paofu76. All rights reserved.',
+    },
 )

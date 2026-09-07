@@ -5,6 +5,7 @@
 ## 功能
 
 - 春、夏、秋、冬主题切换
+- 分层季节氛围动画，并支持手动关闭和窗口失焦自动暂停
 - 笔记新建、编辑、保存、删除和收藏
 - 文本搜索与日期筛选
 - 日期选择器和一键重置
@@ -39,13 +40,19 @@ seasonal_notes/
   themes.py                    四季配色配置
   ui/
     main_window.py             主窗口、对话框与笔记操作
+    note_item.py               笔记摘要列表组件
     editor.py                  富文本编辑器
     table_preview.py           表格预览
     animations.py              四季动画与胶囊
 tests/                         隔离存储测试
 .github/workflows/tests.yml    GitHub 自动检查
 pyproject.toml                 安装入口、依赖和开发工具配置
+seasonal-notes.entitlements   App Sandbox 权限模板
 ```
+
+## Mac App Store 准备
+
+应用已配置 Bundle ID `com.paofu.seasonalnotes`、生产力分类、版本号、高分辨率支持和沙盒权限模板。提交商店前仍需在拥有 Apple Developer 证书的电脑上完成 Developer ID / App Store 签名、沙盒签名、归档、公证或 Transporter 上传，并补齐商店截图、隐私政策和应用描述。
 
 ## 验证与开发约定
 

@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+*.pyc
 notes.json
 season-notes-ui.png
 .DS_Store

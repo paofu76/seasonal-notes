@@ -1,6 +1,8 @@
-import os, uuid, shutil
-from datetime import date
-from PySide6.QtCore import Qt, QDate, QTimer, QPropertyAnimation, QEasingCurve
+import os
+import shutil
+import uuid
+from datetime import date, datetime
+from PySide6.QtCore import Qt, QDate, QTimer, QPropertyAnimation, QEasingCurve, QEvent, QSize
 from PySide6.QtGui import (
     QFont,
     QTextImageFormat,
@@ -28,6 +30,8 @@ from PySide6.QtWidgets import (
     QCalendarWidget,
     QSpinBox,
     QCheckBox,
+    QListWidgetItem,
+    QStackedWidget,
 )
 
 
@@ -35,6 +39,7 @@ from seasonal_notes.storage import ensure_storage, load_notes, save_notes, ATTAC
 from seasonal_notes.themes import THEMES
 from .animations import SeasonalOverlay, SeasonMood
 from .editor import NoteEditor
+from .note_item import NoteListItem
 from .table_preview import TablePreview
 
 
@@ -44,6 +49,8 @@ class App(QMainWindow):
         ensure_storage()
         self.setWindowTitle("季节笔记")
         self.resize(1240, 780)
+        self.setMinimumSize(960, 640)
+        self.setUnifiedTitleAndToolBarOnMac(True)
         self.notes = self.load()
         self.current = None
         self.theme = "春日"
@@ -77,11 +84,11 @@ class App(QMainWindow):
 
         self.side = QWidget()
         self.side.setObjectName("sidebar")
-        self.side.setFixedWidth(220)
+        self.side.setFixedWidth(228)
         sl = QVBoxLayout(self.side)
         sl.setContentsMargins(22, 26, 22, 24)
         sl.setSpacing(7)
-        self.logo = QLabel("季节笔记\nSEASON NOTES")
+        self.logo = QLabel("✦  季节笔记\n     SEASON NOTES")
         self.logo.setObjectName("logo")
         sl.addWidget(self.logo)
         sl.addSpacing(18)
@@ -111,6 +118,12 @@ class App(QMainWindow):
             sl.addWidget(b)
             self.season_buttons.append((n, b))
         sl.addStretch()
+        self.motion = QPushButton("动态氛围  开")
+        self.motion.setObjectName("motionToggle")
+        self.motion.setCheckable(True)
+        self.motion.setChecked(True)
+        self.motion.clicked.connect(self.toggle_motion)
+        sl.addWidget(self.motion)
         self.quote = QLabel("去记录，也去感受。\n今天会有新的好事发生。")
         self.quote.setObjectName("quote")
         sl.addWidget(self.quote)
@@ -125,17 +138,19 @@ class App(QMainWindow):
         head.setSpacing(12)
         greeting = QVBoxLayout()
         greeting.setSpacing(2)
-        h = QLabel("早安，Lena")
-        h.setObjectName("hello")
-        greeting.addWidget(h)
-        sub = QLabel("迎着光，记下今天闪闪发亮的小事。")
+        hour = datetime.now().hour
+        hello = "早上好" if hour < 11 else "午后好" if hour < 18 else "晚上好"
+        self.hello = QLabel(hello)
+        self.hello.setObjectName("hello")
+        greeting.addWidget(self.hello)
+        sub = QLabel("把今天的小小闪光，安静地收藏起来。")
         sub.setObjectName("sub")
         greeting.addWidget(sub)
         head.addLayout(greeting)
         head.addStretch()
         self.mood = SeasonMood()
         head.addWidget(self.mood)
-        self.status = QLabel("●  此刻已收藏")
+        self.status = QLabel("●  内容已保存")
         self.status.setObjectName("status")
         head.addWidget(self.status)
         ml.addLayout(head)
@@ -182,11 +197,33 @@ class App(QMainWindow):
         self.list_count.setObjectName("muted")
         list_head.addWidget(self.list_count)
         ll.addLayout(list_head)
+        self.list_stack = QStackedWidget()
+        self.list_stack.setObjectName("listStack")
         self.list = QListWidget()
         self.list.setObjectName("noteList")
         self.list.setSpacing(4)
         self.list.currentRowChanged.connect(self.pick)
-        ll.addWidget(self.list)
+        self.list_stack.addWidget(self.list)
+        self.list_empty = QWidget()
+        empty_layout = QVBoxLayout(self.list_empty)
+        empty_layout.setContentsMargins(20, 30, 20, 30)
+        empty_layout.addStretch()
+        empty_icon = QLabel("✦")
+        empty_icon.setObjectName("emptyIcon")
+        empty_icon.setAlignment(Qt.AlignCenter)
+        empty_layout.addWidget(empty_icon)
+        self.empty_title = QLabel("今天还没有笔记")
+        self.empty_title.setObjectName("emptyTitle")
+        self.empty_title.setAlignment(Qt.AlignCenter)
+        empty_layout.addWidget(self.empty_title)
+        self.empty_hint = QLabel("写下第一句话，季节就有了形状。")
+        self.empty_hint.setObjectName("emptyHint")
+        self.empty_hint.setAlignment(Qt.AlignCenter)
+        self.empty_hint.setWordWrap(True)
+        empty_layout.addWidget(self.empty_hint)
+        empty_layout.addStretch()
+        self.list_stack.addWidget(self.list_empty)
+        ll.addWidget(self.list_stack)
         split.addWidget(left)
         soft_shadow(left)
         right = QWidget()
@@ -265,6 +302,11 @@ class App(QMainWindow):
         self.editor.textChanged.connect(self.schedule_autosave)
         self.editor.currentCharFormatChanged.connect(self.sync_format_buttons)
 
+    def toggle_motion(self, enabled):
+        self.overlay.set_animation_enabled(enabled)
+        self.mood.set_animation_enabled(enabled)
+        self.motion.setText("动态氛围  开" if enabled else "动态氛围  关")
+
     def style(self):
         bg, panel, accent, text, _ = THEMES[self.theme]
         selected = {"春日": "#ffead9", "盛夏": "#ffebc7", "秋意": "#f7dfd0", "冬藏": "#e2edf8"}[
@@ -272,20 +314,20 @@ class App(QMainWindow):
         ]
         accent2 = QColor(accent).lighter(118).name()
         self.setStyleSheet(f"""
-   QMainWindow{{background:{bg};}} #root,#main{{background:transparent;}} QWidget{{font-family:"SF Pro Display","PingFang SC",Arial;color:{text};font-size:13px;}}
+   QMainWindow,#root{{background:{bg};}} #main{{background:transparent;}} QWidget{{font-family:"SF Pro Display","PingFang SC",Arial;color:{text};font-size:13px;}}
   	 #sidebar{{background:{QColor(bg).lighter(103).name()};border-right:1px solid {QColor(bg).darker(104).name()};}}
-  	 #logo{{font-size:19px;font-weight:700;line-height:1.2;letter-spacing:1px;}} #hello{{font-size:29px;font-weight:700;}} #sub,#meta,#status,#quote,#muted{{color:{accent};}} #sub{{font-size:12px;}} #quote{{font-size:12px;line-height:1.6;}}
+	 #logo{{font-size:18px;font-weight:700;line-height:1.2;letter-spacing:1px;}} #hello{{font-size:28px;font-weight:700;}} #sub,#meta,#status,#quote,#muted{{color:{accent};}} #sub{{font-size:12px;}} #quote{{font-size:12px;line-height:1.6;}}
    #section{{font-size:11px;font-weight:700;color:{QColor(text).lighter(145).name()};margin:5px 0;letter-spacing:1px;}}
-  	 QPushButton,QToolButton{{border:0;border-radius:11px;padding:8px 13px;background:{QColor(panel).darker(101).name()};color:{text};font-weight:600;}}
+	 QPushButton,QToolButton{{border:0;border-radius:10px;padding:8px 13px;background:{QColor(panel).darker(101).name()};color:{text};font-weight:600;}}
   	 QPushButton:hover,QToolButton:hover{{background:{selected};}} QToolButton:checked{{background:{accent};color:white;}} #primary,#compactPrimary{{background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {accent},stop:1 {accent2});color:white;}} #primary:hover,#compactPrimary:hover{{background:{accent2};}}
   	 #sideItem,#season{{text-align:left;background:transparent;padding:10px 12px;}} #sideItem:hover,#season:hover{{background:{selected};}}
   	 #season:checked{{background:{panel};color:{accent};font-weight:700;border:1px solid {selected};}}
-  	 #searchCard,#listCard,#editorCard{{background:{panel};border:1px solid {QColor(bg).darker(103).name()};border-radius:18px;}}
+	 #searchCard,#listCard,#editorCard{{background:{QColor(panel).name(QColor.HexArgb)};border:1px solid {QColor(bg).darker(104).name()};border-radius:18px;}}
   	 #search,#dateButton{{background:{QColor(bg).lighter(106).name()};border:0;border-radius:8px;padding:9px 11px;selection-background-color:{accent};}} #dateButton{{text-align:left;}}
    #dateButton[activeDate="true"]{{background:{selected};color:{accent};font-weight:700;}}
    #search{{min-height:20px;}} #quiet{{background:transparent;color:{accent};}} #danger{{background:transparent;color:#a75b54;}}
   	 #cardTitle{{font-size:15px;font-weight:700;}} #title{{font-size:25px;font-weight:700;border:0;background:transparent;padding:3px 0;}}
-   #noteList{{background:transparent;border:0;outline:0;}} #noteList::item{{padding:13px 11px;border-radius:10px;}} #noteList::item:hover{{background:{bg};}} #noteList::item:selected{{background:{selected};color:{text};}}
+   #noteList,#listStack{{background:transparent;border:0;outline:0;}} #noteList::item{{padding:0;border:0;}} #noteItem{{background:transparent;border-radius:12px;}} #noteItem:hover{{background:{bg};}} #noteItem[selected="true"]{{background:{selected};}} #noteItemTitle{{font-size:14px;font-weight:700;}} #notePreview{{font-size:12px;color:{QColor(text).lighter(138).name()};}} #noteItemMeta{{font-size:11px;color:{accent};}} #noteFavorite{{color:{accent};font-size:13px;}} #emptyIcon{{font-size:28px;color:{accent};}} #emptyTitle{{font-size:15px;font-weight:700;}} #emptyHint{{font-size:12px;color:{QColor(text).lighter(145).name()};}} #motionToggle{{text-align:left;background:transparent;color:{QColor(text).lighter(135).name()};font-size:11px;padding:8px 10px;}}
    #editor{{background:transparent;border:0;border-top:1px solid {bg};padding:16px 3px;font-size:15px;selection-background-color:{selected};}}
    QSplitter::handle{{background:transparent;}} QDialog#sheetDialog{{background:{panel};}} #dialogTitle{{font-size:21px;font-weight:700;}} #dialogSub{{font-size:12px;color:{accent};}} #dialogCard{{background:{bg};border-radius:14px;}} #selectedDate{{font-size:17px;font-weight:700;color:{accent};padding:8px;}}
    QSpinBox{{background:{panel};border:1px solid {selected};border-radius:9px;padding:7px 10px;min-width:74px;}} QCheckBox{{spacing:8px;}}
@@ -425,13 +467,22 @@ class App(QMainWindow):
         self.list.blockSignals(True)
         self.list.clear()
         for n in items:
-            self.list.addItem(
-                f"{n.get('title') or '无标题'}\n{n.get('date', '')}  ·  {n.get('season', '春日')}"
-            )
+            item = QListWidgetItem()
+            item.setSizeHint(QSize(240, 82))
+            item.setData(Qt.UserRole, n.get("id"))
+            self.list.addItem(item)
+            self.list.setItemWidget(item, NoteListItem(n))
         self.list.blockSignals(False)
         self.visible = items
         self.all_btn.setText(f"所有笔记   {len(self.notes)}")
         self.list_count.setText(f"{len(items)} 篇")
+        self.list_stack.setCurrentWidget(self.list if items else self.list_empty)
+        if not items:
+            filtering = bool(q or ds)
+            self.empty_title.setText("没有找到匹配的笔记" if filtering else "今天还没有笔记")
+            self.empty_hint.setText(
+                "换个关键词或清空日期再试试。" if filtering else "写下第一句话，季节就有了形状。"
+            )
         if items:
             wanted = select_id or (self.current.get("id") if self.current else None)
             row = next((i for i, n in enumerate(items) if n.get("id") == wanted), 0)
@@ -444,6 +495,10 @@ class App(QMainWindow):
         self.loading_editor = True
         n = self.visible[row]
         self.current = n
+        for index in range(self.list.count()):
+            widget = self.list.itemWidget(self.list.item(index))
+            if widget:
+                widget.set_selected(index == row)
         self.title.setText(n.get("title", ""))
         if n.get("body_html"):
             self.editor.setHtml(n["body_html"])
@@ -491,7 +546,7 @@ class App(QMainWindow):
             self.notes.insert(0, n)
         self.current = n
         self.persist()
-        self.status.setText("●  已自动保存" if silent else "●  此刻已收藏")
+        self.status.setText("●  已自动保存" if silent else "●  内容已保存")
         self.refresh(n["id"])
 
     def delete_note(self):
@@ -688,3 +743,10 @@ class App(QMainWindow):
         ):
             self.save_note(True)
         event.accept()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if hasattr(self, "overlay") and event.type() == QEvent.ActivationChange:
+            active = self.isActiveWindow() and self.motion.isChecked()
+            self.overlay.set_animation_enabled(active)
+            self.mood.set_animation_enabled(active)

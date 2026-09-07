@@ -1,4 +1,6 @@
-from PySide6.QtCore import Qt, QTimer, QPointF
+import math
+
+from PySide6.QtCore import Qt, QTimer, QPointF, QRectF
 from PySide6.QtGui import QPainter, QColor, QBrush, QPainterPath, QRadialGradient, QLinearGradient
 from PySide6.QtWidgets import QWidget
 
@@ -17,6 +19,14 @@ class SeasonalOverlay(QWidget):
         self.timer.timeout.connect(self.tick)
         self.timer.start(42)
 
+    def set_animation_enabled(self, enabled):
+        if enabled:
+            if not self.timer.isActive():
+                self.timer.start(42)
+        else:
+            self.timer.stop()
+        self.update()
+
     def set_season(self, season):
         self.season = season
         self.phase = 0
@@ -29,8 +39,6 @@ class SeasonalOverlay(QWidget):
     def paintEvent(self, event):
         if self.width() < 10:
             return
-        import math
-
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
@@ -128,12 +136,32 @@ class SeasonalOverlay(QWidget):
                 2,
             )
             soft_ribbon(h * 0.31, 42, (134, 204, 180), 20, 0)
+            # 三层细雨，近景更清晰，远景更慢，形成空间纵深。
+            for layer, (count, speed, alpha, size) in enumerate(
+                [(14, 0.34, 18, 2.0), (10, 0.58, 28, 2.8), (7, 0.88, 38, 3.6)]
+            ):
+                for i in range(count):
+                    x = ((i * 137 + layer * 83) % 997) / 997 * w
+                    y = ((i * 211 + self.phase * speed * 7 + layer * 139) % 1009) / 1009 * h
+                    drop = QPainterPath()
+                    drop.moveTo(x, y - size * 1.5)
+                    drop.cubicTo(x + size, y, x + size * 0.8, y + size, x, y + size * 1.35)
+                    drop.cubicTo(x - size * 0.8, y + size, x - size, y, x, y - size * 1.5)
+                    p.setBrush(QColor(99, 157, 143, alpha))
+                    p.drawPath(drop)
         elif self.season == "盛夏":
             # 日照不是圆形太阳，而是大面积暖光呼吸与空气折射。
             glow(w * 0.78 + math.sin(t * 0.30) * 35, h * 0.04, w * 0.56, (255, 186, 72), 70)
             glow(w * 0.42, h * 0.95, w * 0.48, (255, 226, 121), 44)
             soft_ribbon(h * 0.26, 46, (255, 164, 82), 28, 1)
             soft_ribbon(h * 0.68, 58, (119, 196, 171), 19, 3)
+            # 浮动光斑模拟树荫下被微风推动的日光。
+            for i in range(12):
+                x = ((i * 191) % 1013) / 1013 * w + math.sin(t * 0.42 + i) * 24
+                y = ((i * 127) % 809) / 809 * h + math.cos(t * 0.38 + i) * 14
+                radius = 5 + (i % 4) * 3
+                p.setBrush(QColor(255, 194, 88, 15 + (i % 3) * 7))
+                p.drawEllipse(QPointF(x, y), radius * 1.7, radius)
         elif self.season == "秋意":
             # 琥珀色透明薄片错层漂移，保留秋日层次但不画具象叶片。
             glow(w * 0.82, h * 0.16, w * 0.44, (233, 155, 91), 48)
@@ -154,6 +182,29 @@ class SeasonalOverlay(QWidget):
                     i,
                 )
             soft_ribbon(h * 0.40, 52, (183, 107, 81), 18, 2)
+            # 少量枫叶剪影，不遮挡内容，只在背景边缘缓慢旋转。
+            for i in range(9):
+                x = ((i * 173 + self.phase * (0.34 + i % 3 * 0.09) * 5) % 1103) / 1103 * w
+                y = ((i * 257 + self.phase * (0.42 + i % 2 * 0.12) * 4) % 1019) / 1019 * h
+                size = 4.5 + (i % 3) * 1.8
+                p.save()
+                p.translate(x, y)
+                p.rotate(self.phase * 0.22 + i * 37)
+                leaf = QPainterPath()
+                leaf.moveTo(0, -size * 1.8)
+                leaf.lineTo(size * 0.45, -size * 0.55)
+                leaf.lineTo(size * 1.5, -size * 0.7)
+                leaf.lineTo(size * 0.75, size * 0.15)
+                leaf.lineTo(size * 1.05, size * 1.0)
+                leaf.lineTo(0, size * 0.45)
+                leaf.lineTo(-size * 1.05, size * 1.0)
+                leaf.lineTo(-size * 0.75, size * 0.15)
+                leaf.lineTo(-size * 1.5, -size * 0.7)
+                leaf.lineTo(-size * 0.45, -size * 0.55)
+                leaf.closeSubpath()
+                p.setBrush(QColor(183, 103 + i % 3 * 16, 74, 20 + i % 3 * 7))
+                p.drawPath(leaf)
+                p.restore()
         else:
             # 冬季采用透亮的极光薄幕和冰蓝漫反射，安静但不冰冷。
             glow(w * 0.76, h * 0.10, w * 0.48, (174, 213, 242), 55)
@@ -169,6 +220,12 @@ class SeasonalOverlay(QWidget):
                 32,
                 4,
             )
+            for i in range(24):
+                x = ((i * 149 + math.sin(t * 0.32 + i) * 44) % 1009) / 1009 * w
+                y = ((i * 227 + self.phase * (0.24 + i % 4 * 0.06) * 5) % 1031) / 1031 * h
+                radius = 1.7 + (i % 4) * 0.65
+                p.setBrush(QColor(111, 157, 201, 24 + (i % 4) * 8))
+                p.drawEllipse(QRectF(x - radius, y - radius, radius * 2, radius * 2))
         p.end()
 
 
@@ -185,6 +242,14 @@ class SeasonMood(QWidget):
         self.timer.timeout.connect(self.tick)
         self.timer.start(46)
 
+    def set_animation_enabled(self, enabled):
+        if enabled:
+            if not self.timer.isActive():
+                self.timer.start(46)
+        else:
+            self.timer.stop()
+        self.update()
+
     def set_season(self, season):
         self.season = season
         self.phase = 0
@@ -195,8 +260,6 @@ class SeasonMood(QWidget):
         self.update()
 
     def paintEvent(self, event):
-        import math
-
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
