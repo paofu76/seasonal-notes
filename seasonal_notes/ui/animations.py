@@ -1,7 +1,8 @@
 import math
+from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QPointF, QRectF
-from PySide6.QtGui import QPainter, QColor, QBrush, QPainterPath, QRadialGradient, QLinearGradient
+from PySide6.QtGui import QPainter, QColor, QBrush, QPainterPath, QRadialGradient, QLinearGradient, QPixmap
 from PySide6.QtWidgets import QWidget
 
 
@@ -13,6 +14,12 @@ class SeasonalOverlay(QWidget):
         super().__init__(parent)
         self.season = "春日"
         self.phase = 0
+        atlas = QPixmap(str(Path(__file__).resolve().parent.parent / 'assets' / 'seasons-3d-atlas.png'))
+        self.scenes = {}
+        if not atlas.isNull():
+            sw, sh = atlas.width() // 2, atlas.height() // 2
+            for i, name in enumerate(('春日', '盛夏', '秋意', '冬藏')):
+                self.scenes[name] = atlas.copy((i % 2) * sw, (i // 2) * sh, sw, sh)
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.timer = QTimer(self)
@@ -33,17 +40,100 @@ class SeasonalOverlay(QWidget):
         self.update()
 
     def tick(self):
-        self.phase = (self.phase + 1) % 720
+        self.phase += 1
         self.update()
 
     def paintEvent(self, event):
         if self.width() < 10:
             return
         p = QPainter(self)
+        scene = self.scenes.get(self.season)
+        if scene is not None:
+            p.setRenderHint(QPainter.SmoothPixmapTransform)
+            seconds = self.phase * 0.042
+            zoom = 1.055 + 0.015 * math.sin(seconds * 0.065)
+            scale = max(self.width() / scene.width(), self.height() / scene.height()) * zoom
+            dw, dh = scene.width() * scale, scene.height() * scale
+            x = (self.width() - dw) / 2 + math.sin(seconds * 0.09) * (dw - self.width()) * 0.28
+            y = (self.height() - dh) / 2 + math.cos(seconds * 0.07) * (dh - self.height()) * 0.24
+            p.drawPixmap(QRectF(x, y, dw, dh), scene, QRectF(scene.rect()))
+            p.fillRect(self.rect(), QColor(255, 249, 239, 24))
+            p.end()
+            return
         p.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
         t = self.phase / 90.0
         p.setPen(Qt.NoPen)
+
+        def ambient_wash(top, middle, bottom):
+            """A quiet full-canvas wash keeps the scene visible behind translucent cards."""
+            gradient = QLinearGradient(0, 0, w, h)
+            gradient.setColorAt(0, QColor(*top))
+            gradient.setColorAt(0.48, QColor(*middle))
+            gradient.setColorAt(1, QColor(*bottom))
+            p.fillRect(self.rect(), gradient)
+
+        def horizon_glow(cx, cy, radius, color, alpha):
+            gradient = QRadialGradient(QPointF(cx, cy), radius)
+            gradient.setColorAt(0, QColor(*color, alpha))
+            gradient.setColorAt(0.34, QColor(*color, int(alpha * 0.58)))
+            gradient.setColorAt(0.76, QColor(*color, int(alpha * 0.16)))
+            gradient.setColorAt(1, QColor(*color, 0))
+            p.setBrush(QBrush(gradient))
+            p.drawEllipse(QPointF(cx, cy), radius, radius)
+
+        def depth_veil(anchor, amplitude, color, alpha, speed, offset, thickness):
+            """Wide translucent planes create parallax without looking like particles."""
+            drift = math.sin(t * speed + offset) * amplitude
+            path = QPainterPath()
+            path.moveTo(-w * 0.12, anchor + drift)
+            path.cubicTo(
+                w * 0.20,
+                anchor - amplitude * 1.15 + drift,
+                w * 0.48,
+                anchor + amplitude * 0.90 - drift * 0.35,
+                w * 0.72,
+                anchor - amplitude * 0.30,
+            )
+            path.cubicTo(
+                w * 0.90,
+                anchor - amplitude + drift * 0.20,
+                w * 1.05,
+                anchor + amplitude * 0.45,
+                w * 1.12,
+                anchor + drift * 0.25,
+            )
+            path.lineTo(w * 1.12, anchor + thickness)
+            path.cubicTo(
+                w * 0.76,
+                anchor + thickness * 0.62,
+                w * 0.43,
+                anchor + thickness * 1.18 + drift * 0.22,
+                -w * 0.12,
+                anchor + thickness * 0.68,
+            )
+            path.closeSubpath()
+            gradient = QLinearGradient(0, anchor, w, anchor + thickness)
+            gradient.setColorAt(0, QColor(*color, 0))
+            gradient.setColorAt(0.22, QColor(*color, alpha // 2))
+            gradient.setColorAt(0.58, QColor(*color, alpha))
+            gradient.setColorAt(1, QColor(*color, 0))
+            p.setBrush(QBrush(gradient))
+            p.drawPath(path)
+
+        def light_fall(x, width, color, alpha, lean=0.0):
+            path = QPainterPath()
+            path.moveTo(x, -h * 0.08)
+            path.lineTo(x + width, -h * 0.08)
+            path.lineTo(x + width * 0.32 + lean, h * 1.08)
+            path.lineTo(x - width * 0.55 + lean, h * 1.08)
+            path.closeSubpath()
+            gradient = QLinearGradient(x, 0, x + lean, h)
+            gradient.setColorAt(0, QColor(*color, alpha))
+            gradient.setColorAt(0.52, QColor(*color, alpha // 3))
+            gradient.setColorAt(1, QColor(*color, 0))
+            p.setBrush(QBrush(gradient))
+            p.drawPath(path)
 
         def glow(cx, cy, radius, color, alpha):
             gradient = QRadialGradient(QPointF(cx, cy), radius)
@@ -90,31 +180,10 @@ class SeasonalOverlay(QWidget):
             p.setBrush(QBrush(gradient))
             p.drawPath(path)
 
-        def soft_ribbon(y, width, color, alpha, phase):
-            lift = math.sin(t * 0.72 + phase) * 16
-            path = QPainterPath()
-            path.moveTo(w * 0.18, y)
-            path.cubicTo(
-                w * 0.40, y - width + lift, w * 0.64, y + width - lift, w, y - width * 0.28
-            )
-            path.lineTo(w, y + width * 0.42)
-            path.cubicTo(
-                w * 0.72,
-                y + width + lift,
-                w * 0.42,
-                y - width * 0.22 - lift,
-                w * 0.18,
-                y + width * 0.55,
-            )
-            path.closeSubpath()
-            gradient = QLinearGradient(w * 0.18, y, w, y)
-            gradient.setColorAt(0, QColor(*color, 0))
-            gradient.setColorAt(0.48, QColor(*color, alpha))
-            gradient.setColorAt(1, QColor(*color, 0))
-            p.setBrush(QBrush(gradient))
-            p.drawPath(path)
-
         if self.season == "春日":
+            ambient_wash((235, 249, 240, 44), (255, 247, 231, 22), (238, 246, 240, 34))
+            horizon_glow(w * 0.76, h * 0.03, w * 0.54, (255, 211, 135), 48)
+            horizon_glow(w * 0.03, h * 0.82, w * 0.38, (126, 197, 165), 34)
             # 水彩般的湿润色块：缓慢相互靠近、分离，像清晨空气正在舒展。
             glow(w * 0.72 + math.sin(t * 0.42) * 42, h * 0.13, w * 0.46, (255, 218, 124), 45)
             organic_blob(
@@ -135,34 +204,24 @@ class SeasonalOverlay(QWidget):
                 25,
                 2,
             )
-            soft_ribbon(h * 0.31, 42, (134, 204, 180), 20, 0)
-            # 三层细雨，近景更清晰，远景更慢，形成空间纵深。
-            for layer, (count, speed, alpha, size) in enumerate(
-                [(14, 0.34, 18, 2.0), (10, 0.58, 28, 2.8), (7, 0.88, 38, 3.6)]
-            ):
-                for i in range(count):
-                    x = ((i * 137 + layer * 83) % 997) / 997 * w
-                    y = ((i * 211 + self.phase * speed * 7 + layer * 139) % 1009) / 1009 * h
-                    drop = QPainterPath()
-                    drop.moveTo(x, y - size * 1.5)
-                    drop.cubicTo(x + size, y, x + size * 0.8, y + size, x, y + size * 1.35)
-                    drop.cubicTo(x - size * 0.8, y + size, x - size, y, x, y - size * 1.5)
-                    p.setBrush(QColor(99, 157, 143, alpha))
-                    p.drawPath(drop)
+            depth_veil(h * 0.18, 46, (113, 187, 160), 30, 0.20, 0.4, h * 0.18)
+            depth_veil(h * 0.62, 62, (245, 170, 149), 24, 0.13, 2.1, h * 0.24)
+            light_fall(w * 0.62 + math.sin(t * 0.14) * 28, w * 0.18, (255, 236, 193), 38, w * 0.05)
         elif self.season == "盛夏":
+            ambient_wash((255, 246, 214, 48), (248, 250, 224, 18), (226, 246, 235, 35))
+            horizon_glow(w * 0.86, h * 0.02, w * 0.58, (255, 180, 67), 70)
+            horizon_glow(w * 0.10, h * 0.92, w * 0.40, (89, 190, 163), 30)
             # 日照不是圆形太阳，而是大面积暖光呼吸与空气折射。
             glow(w * 0.78 + math.sin(t * 0.30) * 35, h * 0.04, w * 0.56, (255, 186, 72), 70)
             glow(w * 0.42, h * 0.95, w * 0.48, (255, 226, 121), 44)
-            soft_ribbon(h * 0.26, 46, (255, 164, 82), 28, 1)
-            soft_ribbon(h * 0.68, 58, (119, 196, 171), 19, 3)
-            # 浮动光斑模拟树荫下被微风推动的日光。
-            for i in range(12):
-                x = ((i * 191) % 1013) / 1013 * w + math.sin(t * 0.42 + i) * 24
-                y = ((i * 127) % 809) / 809 * h + math.cos(t * 0.38 + i) * 14
-                radius = 5 + (i % 4) * 3
-                p.setBrush(QColor(255, 194, 88, 15 + (i % 3) * 7))
-                p.drawEllipse(QPointF(x, y), radius * 1.7, radius)
+            depth_veil(h * 0.20, 72, (255, 159, 71), 36, 0.22, 0.8, h * 0.20)
+            depth_veil(h * 0.66, 88, (87, 183, 157), 28, 0.16, 2.8, h * 0.26)
+            depth_veil(h * 0.43, 42, (255, 220, 122), 22, 0.28, 4.0, h * 0.13)
+            light_fall(w * 0.74 + math.sin(t * 0.12) * 36, w * 0.24, (255, 214, 126), 52, -w * 0.08)
         elif self.season == "秋意":
+            ambient_wash((255, 237, 220, 43), (249, 238, 224, 18), (241, 224, 215, 38))
+            horizon_glow(w * 0.84, h * 0.08, w * 0.52, (232, 139, 78), 52)
+            horizon_glow(w * 0.08, h * 0.92, w * 0.42, (175, 91, 83), 28)
             # 琥珀色透明薄片错层漂移，保留秋日层次但不画具象叶片。
             glow(w * 0.82, h * 0.16, w * 0.44, (233, 155, 91), 48)
             for i, (cx, cy, sx, sy, color) in enumerate(
@@ -181,36 +240,20 @@ class SeasonalOverlay(QWidget):
                     24 + i * 3,
                     i,
                 )
-            soft_ribbon(h * 0.40, 52, (183, 107, 81), 18, 2)
-            # 少量枫叶剪影，不遮挡内容，只在背景边缘缓慢旋转。
-            for i in range(9):
-                x = ((i * 173 + self.phase * (0.34 + i % 3 * 0.09) * 5) % 1103) / 1103 * w
-                y = ((i * 257 + self.phase * (0.42 + i % 2 * 0.12) * 4) % 1019) / 1019 * h
-                size = 4.5 + (i % 3) * 1.8
-                p.save()
-                p.translate(x, y)
-                p.rotate(self.phase * 0.22 + i * 37)
-                leaf = QPainterPath()
-                leaf.moveTo(0, -size * 1.8)
-                leaf.lineTo(size * 0.45, -size * 0.55)
-                leaf.lineTo(size * 1.5, -size * 0.7)
-                leaf.lineTo(size * 0.75, size * 0.15)
-                leaf.lineTo(size * 1.05, size * 1.0)
-                leaf.lineTo(0, size * 0.45)
-                leaf.lineTo(-size * 1.05, size * 1.0)
-                leaf.lineTo(-size * 0.75, size * 0.15)
-                leaf.lineTo(-size * 1.5, -size * 0.7)
-                leaf.lineTo(-size * 0.45, -size * 0.55)
-                leaf.closeSubpath()
-                p.setBrush(QColor(183, 103 + i % 3 * 16, 74, 20 + i % 3 * 7))
-                p.drawPath(leaf)
-                p.restore()
+            depth_veil(h * 0.22, 58, (219, 124, 76), 34, 0.17, 0.5, h * 0.20)
+            depth_veil(h * 0.69, 76, (145, 79, 84), 28, 0.12, 2.6, h * 0.28)
+            depth_veil(h * 0.48, 40, (232, 174, 105), 20, 0.23, 4.1, h * 0.13)
+            light_fall(w * 0.80, w * 0.22, (246, 183, 121), 36, -w * 0.12)
         else:
+            ambient_wash((230, 243, 253, 52), (241, 244, 252, 17), (232, 235, 249, 42))
+            horizon_glow(w * 0.78, h * 0.02, w * 0.56, (125, 189, 233), 54)
+            horizon_glow(w * 0.06, h * 0.90, w * 0.44, (175, 157, 219), 28)
             # 冬季采用透亮的极光薄幕和冰蓝漫反射，安静但不冰冷。
             glow(w * 0.76, h * 0.10, w * 0.48, (174, 213, 242), 55)
             glow(w * 0.35, h * 0.92, w * 0.42, (196, 181, 231), 35)
-            soft_ribbon(h * 0.24, 58, (145, 191, 228), 24, 0)
-            soft_ribbon(h * 0.60, 72, (185, 169, 220), 18, 2)
+            depth_veil(h * 0.16, 72, (116, 180, 226), 36, 0.14, 0.2, h * 0.22)
+            depth_veil(h * 0.52, 92, (170, 145, 211), 30, 0.10, 2.4, h * 0.30)
+            depth_veil(h * 0.74, 54, (210, 232, 247), 24, 0.19, 4.5, h * 0.16)
             organic_blob(
                 w * 0.92 + math.sin(t * 0.30) * 16,
                 h * 0.70,
@@ -220,12 +263,7 @@ class SeasonalOverlay(QWidget):
                 32,
                 4,
             )
-            for i in range(24):
-                x = ((i * 149 + math.sin(t * 0.32 + i) * 44) % 1009) / 1009 * w
-                y = ((i * 227 + self.phase * (0.24 + i % 4 * 0.06) * 5) % 1031) / 1031 * h
-                radius = 1.7 + (i % 4) * 0.65
-                p.setBrush(QColor(111, 157, 201, 24 + (i % 4) * 8))
-                p.drawEllipse(QRectF(x - radius, y - radius, radius * 2, radius * 2))
+            light_fall(w * 0.18 + math.sin(t * 0.10) * 24, w * 0.20, (224, 241, 252), 40, w * 0.10)
         p.end()
 
 

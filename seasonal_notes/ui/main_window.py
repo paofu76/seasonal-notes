@@ -309,20 +309,25 @@ class App(QMainWindow):
 
     def style(self):
         bg, panel, accent, text, _ = THEMES[self.theme]
+        panel_color = QColor(panel)
+        sidebar_color = QColor(bg).lighter(103)
+        panel_rgba = f"rgba({panel_color.red()},{panel_color.green()},{panel_color.blue()},239)"
+        sidebar_rgba = f"rgba({sidebar_color.red()},{sidebar_color.green()},{sidebar_color.blue()},200)"
         selected = {"春日": "#ffead9", "盛夏": "#ffebc7", "秋意": "#f7dfd0", "冬藏": "#e2edf8"}[
             self.theme
         ]
         accent2 = QColor(accent).lighter(118).name()
         self.setStyleSheet(f"""
    QMainWindow,#root{{background:{bg};}} #main{{background:transparent;}} QWidget{{font-family:"SF Pro Display","PingFang SC",Arial;color:{text};font-size:13px;}}
-  	 #sidebar{{background:{QColor(bg).lighter(103).name()};border-right:1px solid {QColor(bg).darker(104).name()};}}
+#sidebar{{background:{sidebar_rgba};border-right:1px solid {QColor(bg).darker(104).name()};}}
 	 #logo{{font-size:18px;font-weight:700;line-height:1.2;letter-spacing:1px;}} #hello{{font-size:28px;font-weight:700;}} #sub,#meta,#status,#quote,#muted{{color:{accent};}} #sub{{font-size:12px;}} #quote{{font-size:12px;line-height:1.6;}}
+   #hello,#sub,#status{{background:rgba(255,250,241,220);border-radius:8px;padding:4px 10px;}}
    #section{{font-size:11px;font-weight:700;color:{QColor(text).lighter(145).name()};margin:5px 0;letter-spacing:1px;}}
 	 QPushButton,QToolButton{{border:0;border-radius:10px;padding:8px 13px;background:{QColor(panel).darker(101).name()};color:{text};font-weight:600;}}
   	 QPushButton:hover,QToolButton:hover{{background:{selected};}} QToolButton:checked{{background:{accent};color:white;}} #primary,#compactPrimary{{background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {accent},stop:1 {accent2});color:white;}} #primary:hover,#compactPrimary:hover{{background:{accent2};}}
   	 #sideItem,#season{{text-align:left;background:transparent;padding:10px 12px;}} #sideItem:hover,#season:hover{{background:{selected};}}
   	 #season:checked{{background:{panel};color:{accent};font-weight:700;border:1px solid {selected};}}
-	 #searchCard,#listCard,#editorCard{{background:{QColor(panel).name(QColor.HexArgb)};border:1px solid {QColor(bg).darker(104).name()};border-radius:18px;}}
+	 #searchCard,#listCard,#editorCard{{background:{panel_rgba};border:1px solid {QColor(bg).darker(104).name()};border-radius:18px;}}
   	 #search,#dateButton{{background:{QColor(bg).lighter(106).name()};border:0;border-radius:8px;padding:9px 11px;selection-background-color:{accent};}} #dateButton{{text-align:left;}}
    #dateButton[activeDate="true"]{{background:{selected};color:{accent};font-weight:700;}}
    #search{{min-height:20px;}} #quiet{{background:transparent;color:{accent};}} #danger{{background:transparent;color:#a75b54;}}

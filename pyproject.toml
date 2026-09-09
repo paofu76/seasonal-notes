@@ -18,6 +18,9 @@ seasonal-notes = "seasonal_notes.application:main"
 [tool.setuptools.packages.find]
 include = ["seasonal_notes*"]
 
+[tool.setuptools.package-data]
+seasonal_notes = ["assets/*.png"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
