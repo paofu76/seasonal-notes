@@ -51,8 +51,8 @@ app = BUNDLE(
     info_plist={
         'CFBundleDisplayName': '季节笔记',
         'CFBundleName': '季节笔记',
-        'CFBundleShortVersionString': '0.4.0',
-        'CFBundleVersion': '2',
+        'CFBundleShortVersionString': '0.4.1',
+        'CFBundleVersion': '3',
         'LSApplicationCategoryType': 'public.app-category.productivity',
         'NSHighResolutionCapable': True,
         'NSHumanReadableCopyright': 'Copyright © 2026 paofu76. All rights reserved.',

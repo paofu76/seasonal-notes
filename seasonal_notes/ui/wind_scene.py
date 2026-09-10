@@ -15,10 +15,10 @@ from seasonal_notes.themes import THEMES
 class SeasonalOverlay(QWidget):
     INTERVAL = 33
     SCENE_NAMES = {
-        "春日": "樱花池畔 · 花随风起",
-        "盛夏": "海边午后 · 风过白纱",
-        "秋意": "金秋林径 · 叶落有声",
-        "冬藏": "雪山木屋 · 灯火可亲",
+        "春日": "城市花房 · 雨后日出",
+        "盛夏": "海岛露台 · 风过白纱",
+        "秋意": "艺术校园 · 金叶漫步",
+        "冬藏": "城市雪夜 · 暖灯相伴",
     }
 
     def __init__(self, parent=None):
