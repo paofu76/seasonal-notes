@@ -312,7 +312,12 @@ class App(QMainWindow):
         panel_color = QColor(panel)
         sidebar_color = QColor(bg).lighter(103)
         panel_rgba = f"rgba({panel_color.red()},{panel_color.green()},{panel_color.blue()},239)"
-        sidebar_rgba = f"rgba({sidebar_color.red()},{sidebar_color.green()},{sidebar_color.blue()},200)"
+        sr, sg, sb = sidebar_color.red(), sidebar_color.green(), sidebar_color.blue()
+        sidebar_rgba = (f"qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+                        f"stop:0 rgba({sr},{sg},{sb},240),"
+                        f"stop:0.60 rgba({sr},{sg},{sb},226),"
+                        f"stop:0.79 rgba({sr},{sg},{sb},45),"
+                        f"stop:1 rgba({sr},{sg},{sb},210))")
         selected = {"春日": "#ffead9", "盛夏": "#ffebc7", "秋意": "#f7dfd0", "冬藏": "#e2edf8"}[
             self.theme
         ]
@@ -322,6 +327,7 @@ class App(QMainWindow):
 #sidebar{{background:{sidebar_rgba};border-right:1px solid {QColor(bg).darker(104).name()};}}
 	 #logo{{font-size:18px;font-weight:700;line-height:1.2;letter-spacing:1px;}} #hello{{font-size:28px;font-weight:700;}} #sub,#meta,#status,#quote,#muted{{color:{accent};}} #sub{{font-size:12px;}} #quote{{font-size:12px;line-height:1.6;}}
    #hello,#sub,#status{{background:rgba(255,250,241,220);border-radius:8px;padding:4px 10px;}}
+   #quote{{background:rgba(255,250,241,225);border-radius:8px;padding:7px;color:{text};}}
    #section{{font-size:11px;font-weight:700;color:{QColor(text).lighter(145).name()};margin:5px 0;letter-spacing:1px;}}
 	 QPushButton,QToolButton{{border:0;border-radius:10px;padding:8px 13px;background:{QColor(panel).darker(101).name()};color:{text};font-weight:600;}}
   	 QPushButton:hover,QToolButton:hover{{background:{selected};}} QToolButton:checked{{background:{accent};color:white;}} #primary,#compactPrimary{{background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {accent},stop:1 {accent2});color:white;}} #primary:hover,#compactPrimary:hover{{background:{accent2};}}
@@ -343,6 +349,8 @@ class App(QMainWindow):
         self.style()
         self.overlay.set_season(self.theme)
         self.mood.set_season(self.theme)
+        self.quote.setText(self.overlay.SCENE_NAMES[self.theme] + "\n让风景陪你，慢慢写。")
+        self.mood.setToolTip(self.overlay.SCENE_NAMES[self.theme])
         for name, button in self.season_buttons:
             button.setChecked(name == self.theme)
         self.refresh()
