@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QLineEdit,
     QMenu,
+    QMessageBox,
     QPushButton,
 )
 
@@ -96,6 +97,10 @@ class UiSmokeTests(unittest.TestCase):
         self.assertTrue(self.window.current["archived"])
         self.window.archive_btn.setChecked(True)
         self.assertEqual(len(self.window.visible), 1)
+        folder_index = self.window.organizer_filter.findData("folder:旅行")
+        self.assertGreaterEqual(folder_index, 0)
+        self.window.organizer_filter.setCurrentIndex(folder_index)
+        self.assertEqual([note["title"] for note in self.window.visible], ["今天的灵感"])
 
     def test_checklist_table_and_date_picker(self):
         self.window.editor.clear()
@@ -156,6 +161,55 @@ class UiSmokeTests(unittest.TestCase):
         self.assertEqual(self.window.search.text(), "")
         self.assertFalse(self.window.favorite_only)
         self.assertIn("字", self.window.count_label.text())
+
+    def test_pending_edits_are_saved_before_switching_notes(self):
+        self.window.new_note()
+        self.window.title.setText("第一篇")
+        self.window.editor.setPlainText("原内容")
+        self.window.save_note()
+        first_id = self.window.current["id"]
+
+        self.window.new_note()
+        self.window.title.setText("第二篇")
+        self.window.editor.setPlainText("另一篇")
+        self.window.save_note()
+        second_id = self.window.current["id"]
+
+        first_row = next(
+            index for index, note in enumerate(self.window.visible) if note["id"] == first_id
+        )
+        self.window.pick(first_row)
+        self.window.editor.setPlainText("切换前的新内容")
+        self.assertTrue(self.window.autosave_timer.isActive())
+        second_row = next(
+            index for index, note in enumerate(self.window.visible) if note["id"] == second_id
+        )
+        self.window.pick(second_row)
+
+        saved = next(note for note in storage.load_notes() if note["id"] == first_id)
+        self.assertEqual(saved["body"], "切换前的新内容")
+
+    def test_note_moves_to_trash_and_can_be_restored(self):
+        self.window.new_note()
+        self.window.title.setText("可恢复的笔记")
+        self.window.editor.setPlainText("不要误删")
+        self.window.save_note()
+        note_id = self.window.current["id"]
+
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.Yes):
+            self.window.delete_note()
+        deleted = next(note for note in self.window.notes if note["id"] == note_id)
+        self.assertTrue(deleted.get("deleted_at"))
+        self.assertEqual(len(self.window.visible), 0)
+
+        self.window.trash_action.setChecked(True)
+        self.assertEqual([note["id"] for note in self.window.visible], [note_id])
+        self.assertIsNotNone(self.window.current)
+        self.window.restore_note()
+
+        restored = next(note for note in self.window.notes if note["id"] == note_id)
+        self.assertNotIn("deleted_at", restored)
+        self.assertEqual([note["id"] for note in self.window.visible], [note_id])
 
 
 if __name__ == "__main__":

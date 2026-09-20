@@ -36,11 +36,13 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QStackedWidget,
     QMenu,
+    QComboBox,
 )
 
 
 from seasonal_notes.storage import (
     ATTACHMENTS_DIR,
+    BACKUP_DIR,
     cleanup_attachments,
     create_daily_backup,
     ensure_storage,
@@ -80,6 +82,7 @@ class App(QMainWindow):
         self.selected_date = ""
         self.favorite_only = False
         self.archive_only = False
+        self.trash_only = False
         self.draft_date = date.today().isoformat()
         self.draft_folder = "随手记"
         self.draft_tags = []
@@ -170,6 +173,10 @@ class App(QMainWindow):
         self.more.setText("•••")
         self.more.setPopupMode(QToolButton.InstantPopup)
         self.more_menu = QMenu(self.more)
+        self.trash_action = self.more_menu.addAction("查看废纸篓")
+        self.trash_action.setCheckable(True)
+        self.trash_action.toggled.connect(self.toggle_trash_filter)
+        self.more_menu.addSeparator()
         self.more_menu.addAction("导出完整备份…", self.export_data)
         self.more_menu.addAction("从备份恢复…", self.import_data)
         self.more_menu.addSeparator()
@@ -263,6 +270,11 @@ class App(QMainWindow):
         self.list_count.setObjectName("muted")
         list_head.addWidget(self.list_count)
         ll.addLayout(list_head)
+        self.organizer_filter = QComboBox()
+        self.organizer_filter.setObjectName("organizerFilter")
+        self.organizer_filter.addItem("全部分类与标签", "")
+        self.organizer_filter.currentIndexChanged.connect(lambda _: self.refresh())
+        ll.addWidget(self.organizer_filter)
         self.list_stack = QStackedWidget()
         self.list_stack.setObjectName("listStack")
         self.list = QListWidget()
@@ -346,6 +358,11 @@ class App(QMainWindow):
                 self.format_buttons[text] = b
             tools.addWidget(b)
         tools.addStretch()
+        self.restore_btn = QPushButton("恢复")
+        self.restore_btn.setObjectName("quiet")
+        self.restore_btn.clicked.connect(self.restore_note)
+        self.restore_btn.hide()
+        tools.addWidget(self.restore_btn)
         self.delete_btn = QPushButton("删除")
         self.delete_btn.setObjectName("danger")
         self.delete_btn.clicked.connect(self.delete_note)
@@ -419,7 +436,55 @@ class App(QMainWindow):
 
     def toggle_archive_filter(self, enabled):
         self.archive_only = enabled
+        if enabled and self.trash_only:
+            self.trash_action.setChecked(False)
         self.refresh()
+
+    def toggle_trash_filter(self, enabled):
+        self.trash_only = enabled
+        if enabled and self.archive_only:
+            self.archive_btn.setChecked(False)
+        self.more.setText("废纸篓" if enabled else "•••")
+        self.refresh()
+
+    def notes_in_current_scope(self):
+        """Return notes that belong to the active archive/trash/favorite scope."""
+        notes = [
+            note
+            for note in self.notes
+            if bool(note.get("deleted_at")) == self.trash_only
+            and (self.trash_only or bool(note.get("archived", False)) == self.archive_only)
+            and (not self.favorite_only or note.get("favorite", False))
+        ]
+        organizer = self.organizer_filter.currentData() if hasattr(self, "organizer_filter") else ""
+        if organizer and organizer.startswith("folder:"):
+            folder = organizer.split(":", 1)[1]
+            notes = [note for note in notes if note.get("folder", "随手记") == folder]
+        elif organizer and organizer.startswith("tag:"):
+            tag = organizer.split(":", 1)[1]
+            notes = [note for note in notes if tag in note.get("tags", [])]
+        return notes
+
+    def refresh_organizer_filter(self):
+        current = self.organizer_filter.currentData()
+        base = [
+            note
+            for note in self.notes
+            if bool(note.get("deleted_at")) == self.trash_only
+            and (self.trash_only or bool(note.get("archived", False)) == self.archive_only)
+        ]
+        folders = sorted({note.get("folder", "随手记") for note in base if note.get("folder")})
+        tags = sorted({tag for note in base for tag in note.get("tags", []) if tag})
+        self.organizer_filter.blockSignals(True)
+        self.organizer_filter.clear()
+        self.organizer_filter.addItem("全部分类与标签", "")
+        for folder in folders:
+            self.organizer_filter.addItem(f"分类 · {folder}", f"folder:{folder}")
+        for tag in tags:
+            self.organizer_filter.addItem(f"标签 · #{tag}", f"tag:{tag}")
+        index = self.organizer_filter.findData(current)
+        self.organizer_filter.setCurrentIndex(max(0, index))
+        self.organizer_filter.blockSignals(False)
 
     def update_count(self):
         text = self.editor.toPlainText()
@@ -484,6 +549,8 @@ QToolButton:checked{{background:{accent};color:white;}}
 #dateButton{{text-align:left;}}
 #dateButton[activeDate="true"]{{background:{selected_glass};color:{accent};font-weight:800;}}
 #search{{min-height:20px;}}
+#organizerFilter{{background:rgba(255,255,255,105);border:0;border-radius:12px;padding:8px 11px;font-weight:650;}}
+#organizerFilter::drop-down{{border:0;width:24px;}}
 #quiet{{background:rgba(255,255,255,85);color:{accent};}}
 #danger{{background:transparent;color:#bd5b58;}}
 #cardTitle{{font-size:16px;font-weight:800;}}
@@ -581,7 +648,8 @@ QMenu::item:selected{{background:{selected};}}
         layout.addLayout(quick)
         body = QHBoxLayout()
         body.setSpacing(12)
-        calendar = NoteCalendar(self.notes, THEMES[self.theme][2])
+        calendar_notes = self.notes_in_current_scope()
+        calendar = NoteCalendar(calendar_notes, THEMES[self.theme][2])
         calendar.setObjectName("dateCalendar")
         calendar.setGridVisible(False)
         calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
@@ -610,7 +678,7 @@ QMenu::item:selected{{background:{selected};}}
             day = calendar.selectedDate().toString("yyyy-MM-dd")
             selected.setText(calendar.selectedDate().toString("MM 月 dd 日"))
             day_list.clear()
-            matching = [note for note in self.notes if note.get("date") == day]
+            matching = [note for note in calendar_notes if note.get("date") == day]
             for note in matching:
                 marker = "★ " if note.get("favorite") else ""
                 day_list.addItem(marker + (note.get("title") or "无标题笔记"))
@@ -789,7 +857,7 @@ QMenu::item:selected{{background:{selected};}}
 
     def import_data(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "从备份恢复", "", "季节笔记备份 (*.snotes)"
+            self, "从备份恢复", str(BACKUP_DIR), "季节笔记备份 (*.snotes)"
         )
         if not path:
             return
@@ -826,22 +894,34 @@ QMenu::item:selected{{background:{selected};}}
         self.date_button.style().unpolish(self.date_button)
         self.date_button.style().polish(self.date_button)
 
-    def clear_filters(self):
+    def reset_filter_state(self):
         self.search.clear()
         self.selected_date = ""
         self.favorite_only = False
         self.archive_only = False
-        self.favorites_btn.setChecked(False)
-        self.archive_btn.setChecked(False)
+        self.trash_only = False
+        for control in (self.favorites_btn, self.archive_btn, self.trash_action):
+            control.blockSignals(True)
+            control.setChecked(False)
+            control.blockSignals(False)
+        self.more.setText("•••")
+        self.organizer_filter.blockSignals(True)
+        self.organizer_filter.setCurrentIndex(0)
+        self.organizer_filter.blockSignals(False)
         self.update_date_button()
+
+    def clear_filters(self):
+        self.reset_filter_state()
         self.refresh()
 
-    def refresh(self, select_id=None):
+    def refresh(self, select_id=None, select_first=True):
+        self.refresh_organizer_filter()
         q = self.search.text().strip().lower()
         ds = self.selected_date
+        scoped_notes = self.notes_in_current_scope()
         items = [
             n
-            for n in self.notes
+            for n in scoped_notes
             if (
                 not q
                 or q
@@ -854,9 +934,11 @@ QMenu::item:selected{{background:{selected};}}
                 ).lower()
             )
             and (not ds or n.get("date", "") == ds)
-            and (not self.favorite_only or n.get("favorite", False))
-            and bool(n.get("archived", False)) == self.archive_only
         ]
+        items.sort(
+            key=lambda note: (note.get("date", ""), note.get("updated_at", "")),
+            reverse=True,
+        )
         self.list.blockSignals(True)
         self.list.clear()
         for n in items:
@@ -867,20 +949,39 @@ QMenu::item:selected{{background:{selected};}}
             self.list.setItemWidget(item, NoteListItem(n))
         self.list.blockSignals(False)
         self.visible = items
-        self.all_btn.setText(f"▤  {len(self.notes)}")
-        archived_count = sum(bool(note.get("archived", False)) for note in self.notes)
+        active_count = sum(
+            not note.get("deleted_at") and not note.get("archived", False) for note in self.notes
+        )
+        self.all_btn.setText(f"▤  {active_count}")
+        archived_count = sum(
+            bool(note.get("archived", False)) and not note.get("deleted_at") for note in self.notes
+        )
+        trash_count = sum(bool(note.get("deleted_at")) for note in self.notes)
         self.archive_btn.setText(f"⌁  归档 {archived_count}" if archived_count else "⌁  归档")
+        self.trash_action.setText(f"查看废纸篓（{trash_count}）" if trash_count else "查看废纸篓")
         self.list_count.setText(f"{len(items)} 篇")
         self.list_stack.setCurrentWidget(self.list if items else self.list_empty)
         if not items:
-            filtering = bool(q or ds or self.favorite_only or self.archive_only)
-            self.empty_title.setText("没有找到匹配的笔记" if filtering else "今天还没有笔记")
+            filtering = bool(
+                q
+                or ds
+                or self.favorite_only
+                or self.archive_only
+                or self.trash_only
+                or self.organizer_filter.currentData()
+            )
+            if self.trash_only and not q and not ds and not self.organizer_filter.currentData():
+                self.empty_title.setText("废纸篓是空的")
+            else:
+                self.empty_title.setText("没有找到匹配的笔记" if filtering else "今天还没有笔记")
             self.empty_hint.setText(
-                "调整搜索、日期或收藏条件再试试。"
+                "移到废纸篓的笔记会保留在这里，可随时恢复。"
+                if self.trash_only and not q and not ds
+                else "调整搜索、日期、分类或收藏条件再试试。"
                 if filtering
                 else "写下第一句话，季节就有了形状。"
             )
-        if items:
+        if items and select_first:
             wanted = select_id or (self.current.get("id") if self.current else None)
             row = next((i for i, n in enumerate(items) if n.get("id") == wanted), 0)
             self.list.setCurrentRow(row)
@@ -888,9 +989,15 @@ QMenu::item:selected{{background:{selected};}}
     def pick(self, row):
         if row < 0 or row >= len(getattr(self, "visible", [])):
             return
+        target_id = self.visible[row].get("id")
+        if self.autosave_timer.isActive() and not self.loading_editor:
+            self.save_note(True, refresh_list=False)
         self.autosave_timer.stop()
         self.loading_editor = True
-        n = self.visible[row]
+        n = next(
+            (note for note in self.notes if note.get("id") == target_id),
+            self.visible[row],
+        )
         self.current = n
         self.draft_date = n.get("date", date.today().isoformat())
         self.draft_folder = n.get("folder", "随手记")
@@ -907,13 +1014,22 @@ QMenu::item:selected{{background:{selected};}}
             self.editor.setPlainText(n.get("body", ""))
         self.update_meta(n.get("season", "春日"))
         self.favorite.setText("★ 已收藏" if n.get("favorite") else "☆ 收藏")
+        self.restore_btn.setVisible(self.trash_only)
+        self.delete_btn.setText("彻底删除" if self.trash_only else "移到废纸篓")
         self.loading_editor = False
         self.sync_format_buttons(self.editor.currentCharFormat())
 
     def new_note(self):
+        if self.autosave_timer.isActive() and not self.loading_editor:
+            self.save_note(True)
         self.autosave_timer.stop()
         self.loading_editor = True
         self.current = None
+        self.reset_filter_state()
+        self.list.blockSignals(True)
+        self.list.clearSelection()
+        self.list.setCurrentRow(-1)
+        self.list.blockSignals(False)
         self.draft_date = date.today().isoformat()
         self.draft_folder = "随手记"
         self.draft_tags = []
@@ -922,7 +1038,10 @@ QMenu::item:selected{{background:{selected};}}
         self.editor.clear()
         self.update_meta(self.theme)
         self.favorite.setText("☆ 收藏")
+        self.restore_btn.hide()
+        self.delete_btn.setText("移到废纸篓")
         self.loading_editor = False
+        self.refresh(select_first=False)
         self.editor.setFocus()
 
     def schedule_autosave(self):
@@ -937,14 +1056,16 @@ QMenu::item:selected{{background:{selected};}}
         if self.current or self.title.text().strip() or self.editor.toPlainText().strip():
             self.save_note(True)
 
-    def save_note(self, silent=False):
+    def save_note(self, silent=False, refresh_list=True):
         t = self.title.text().strip() or "无标题"
         b = self.editor.toPlainText()
         html = self.editor.toHtml()
+        now = datetime.now().isoformat(timespec="seconds")
         n = self.current or {
             "id": str(uuid.uuid4()),
             "date": self.draft_date,
             "favorite": False,
+            "created_at": now,
         }
         n.update(
             title=t,
@@ -955,6 +1076,7 @@ QMenu::item:selected{{background:{selected};}}
             folder=self.draft_folder,
             tags=self.draft_tags,
             archived=self.draft_archived,
+            updated_at=now,
         )
         if not self.current:
             self.notes.insert(0, n)
@@ -962,18 +1084,65 @@ QMenu::item:selected{{background:{selected};}}
         self.persist()
         cleanup_attachments(self.notes)
         self.status.setText("●  已自动保存" if silent else "●  内容已保存")
-        self.refresh(n["id"])
+        if refresh_list:
+            self.refresh(n["id"])
 
     def delete_note(self):
         if not self.current:
             return
-        if QMessageBox.question(self, "删除笔记", "确定删除当前笔记吗？") == QMessageBox.Yes:
+        if self.trash_only:
+            answer = QMessageBox.question(
+                self,
+                "彻底删除笔记",
+                "彻底删除后无法恢复，确定继续吗？",
+            )
+            if answer != QMessageBox.Yes:
+                return
             self.notes = [n for n in self.notes if n["id"] != self.current["id"]]
-            self.current = None
-            self.persist()
             cleanup_attachments(self.notes)
-            self.new_note()
-            self.refresh()
+        else:
+            answer = QMessageBox.question(
+                self,
+                "移到废纸篓",
+                "这篇笔记会保留在废纸篓中，可随时恢复。",
+            )
+            if answer != QMessageBox.Yes:
+                return
+            self.current["deleted_at"] = datetime.now().isoformat(timespec="seconds")
+        self.autosave_timer.stop()
+        self.current = None
+        self.persist()
+        self.new_note()
+
+    def restore_note(self):
+        if not self.current or not self.current.get("deleted_at"):
+            return
+        restored_id = self.current.get("id")
+        restored_archived = bool(self.current.get("archived", False))
+        self.current.pop("deleted_at", None)
+        self.current["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        self.persist()
+        self.current = None
+        self.search.clear()
+        self.selected_date = ""
+        self.favorite_only = False
+        self.archive_only = restored_archived
+        self.trash_only = False
+        for control, checked in (
+            (self.favorites_btn, False),
+            (self.archive_btn, restored_archived),
+            (self.trash_action, False),
+        ):
+            control.blockSignals(True)
+            control.setChecked(checked)
+            control.blockSignals(False)
+        self.organizer_filter.blockSignals(True)
+        self.organizer_filter.setCurrentIndex(0)
+        self.organizer_filter.blockSignals(False)
+        self.update_date_button()
+        self.more.setText("•••")
+        self.refresh(restored_id)
+        self.status.setText("●  笔记已恢复")
 
     def toggle_favorite(self):
         if not self.current:
@@ -1170,7 +1339,7 @@ QMenu::item:selected{{background:{selected};}}
         if not self.loading_editor and (
             self.current or self.title.text().strip() or self.editor.toPlainText().strip()
         ):
-            self.save_note(True)
+            self.save_note(True, refresh_list=False)
         save_settings(
             {
                 "theme": self.theme,
