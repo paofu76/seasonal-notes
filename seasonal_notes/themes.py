@@ -1,6 +1,6 @@
 THEMES = {
-    "春日": ("#f3f7e9", "#fffef9", "#ed8b58", "#34483b", "SPRING"),
-    "盛夏": ("#fff3d9", "#fffef8", "#eea03f", "#57401f", "SUMMER"),
-    "秋意": ("#f7e9dc", "#fffaf5", "#d7784f", "#593a2c", "AUTUMN"),
-    "冬藏": ("#edf2f7", "#fcfeff", "#6d91c6", "#34445a", "WINTER"),
+    "春日": ("#eaf4e8", "#fff9f1", "#f26f63", "#263b34", "SPRING"),
+    "盛夏": ("#e2f4ef", "#fff8e8", "#f39a38", "#173d3a", "SUMMER"),
+    "秋意": ("#f3e5d8", "#fff7ee", "#df6b42", "#493028", "AUTUMN"),
+    "冬藏": ("#e8edf7", "#f8faff", "#6975dc", "#25334a", "WINTER"),
 }

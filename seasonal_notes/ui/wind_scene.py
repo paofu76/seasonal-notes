@@ -15,10 +15,17 @@ from seasonal_notes.themes import THEMES
 class SeasonalOverlay(QWidget):
     INTERVAL = 33
     SCENE_NAMES = {
-        "春日": "城市花房 · 雨后日出",
-        "盛夏": "海岛露台 · 风过白纱",
-        "秋意": "艺术校园 · 金叶漫步",
-        "冬藏": "城市雪夜 · 暖灯相伴",
+        "春日": "樱花创作间 · 雨后日出",
+        "盛夏": "海边冲浪屋 · 风过白纱",
+        "秋意": "艺术校园 · 唱片与落叶",
+        "冬藏": "城市放映夜 · 雪落窗前",
+    }
+
+    SCENE_FILES = {
+        "春日": "spring-studio.png",
+        "盛夏": "summer-surf.png",
+        "秋意": "autumn-campus.png",
+        "冬藏": "winter-loft.png",
     }
 
     def __init__(self, parent=None):
@@ -26,11 +33,11 @@ class SeasonalOverlay(QWidget):
         self.season = "春日"
         self.phase = 0
         self.scenes = {}
-        atlas = QPixmap(str(Path(__file__).resolve().parent.parent / "assets/seasons-3d-atlas.png"))
-        if not atlas.isNull():
-            sw, sh = atlas.width() // 2, atlas.height() // 2
-            for i, name in enumerate(self.SCENE_NAMES):
-                self.scenes[name] = atlas.copy(i % 2 * sw, i // 2 * sh, sw, sh)
+        assets = Path(__file__).resolve().parent.parent / "assets"
+        for season, filename in self.SCENE_FILES.items():
+            scene = QPixmap(str(assets / filename))
+            if not scene.isNull():
+                self.scenes[season] = scene
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.timer = QTimer(self)
@@ -83,12 +90,18 @@ class SeasonalOverlay(QWidget):
             water = self._fade((v-.55)/.10) * self._fade((.91-v)/.08)
             water *= self._fade((u-.42)/.14)
             dx += water * .0025 * math.sin(v * 74 - t * 1.8)
+            curtain = self._fade((u-.68)/.12) * self._fade((.59-v)/.22)
+            dx += curtain * .010 * math.sin(t * 1.15-v * 7)
         elif self.season == "秋意":
             dx *= 1.55
             dy *= 1.25
         else:
             dx *= .65
             dy *= .65
+            curtain = self._fade((u-.70)/.12) * self._fade((.68-v)/.20)
+            dx += curtain * (.015 * math.sin(t*.92-v*6)
+                             + .003 * math.sin(t*2.0-v*13))
+            dy += curtain * .0035 * math.cos(t*.92-v*6)
         return dx * edge, dy * edge
 
     def _draw_scene(self, p, scene, t):

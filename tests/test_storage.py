@@ -38,3 +38,14 @@ class StorageTests(unittest.TestCase):
                 target.write_text('[{"id":"kept"}]')
                 storage.ensure_storage()
                 self.assertEqual(target.read_text(), '[{"id":"kept"}]')
+
+    def test_settings_round_trip_and_corrupt_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings.json"
+            with patch.object(storage, "SETTINGS", path):
+                self.assertEqual(storage.load_settings(), {})
+                settings = {"theme": "盛夏", "motion": False, "split_sizes": [300, 700]}
+                storage.save_settings(settings)
+                self.assertEqual(storage.load_settings(), settings)
+                path.write_text("broken", encoding="utf-8")
+                self.assertEqual(storage.load_settings(), {})

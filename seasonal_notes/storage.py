@@ -12,6 +12,7 @@ APP_DATA_DIR = Path(
 )
 ATTACHMENTS_DIR = APP_DATA_DIR / "attachments"
 DATA = APP_DATA_DIR / "notes.json"
+SETTINGS = APP_DATA_DIR / "settings.json"
 LEGACY_DATA = Path(__file__).resolve().parent.parent / "notes.json"
 
 
@@ -39,3 +40,24 @@ def save_notes(notes):
         stream.flush()
         os.fsync(stream.fileno())
     os.replace(temporary, DATA)
+
+
+def load_settings():
+    if not SETTINGS.exists():
+        return {}
+    try:
+        with SETTINGS.open(encoding="utf-8") as stream:
+            settings = json.load(stream)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return settings if isinstance(settings, dict) else {}
+
+
+def save_settings(settings):
+    SETTINGS.parent.mkdir(parents=True, exist_ok=True)
+    temporary = SETTINGS.with_suffix(".json.tmp")
+    with temporary.open("w", encoding="utf-8") as stream:
+        json.dump(settings, stream, ensure_ascii=False, indent=2)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, SETTINGS)

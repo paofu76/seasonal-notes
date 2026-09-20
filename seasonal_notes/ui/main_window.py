@@ -11,6 +11,9 @@ from PySide6.QtGui import (
     QTextTableFormat,
     QTextLength,
     QTextCharFormat,
+    QImage,
+    QKeySequence,
+    QShortcut,
 )
 from PySide6.QtWidgets import (
     QMainWindow,
@@ -35,7 +38,14 @@ from PySide6.QtWidgets import (
 )
 
 
-from seasonal_notes.storage import ensure_storage, load_notes, save_notes, ATTACHMENTS_DIR
+from seasonal_notes.storage import (
+    ATTACHMENTS_DIR,
+    ensure_storage,
+    load_notes,
+    load_settings,
+    save_notes,
+    save_settings,
+)
 from seasonal_notes.themes import THEMES
 from .animations import SeasonalOverlay, SeasonMood
 from .editor import NoteEditor
@@ -47,16 +57,30 @@ class App(QMainWindow):
     def __init__(self):
         super().__init__()
         ensure_storage()
+        self.preferences = load_settings()
         self.setWindowTitle("季节笔记")
-        self.resize(1240, 780)
+        window_size = self.preferences.get("window_size", [1240, 780])
+        if not isinstance(window_size, list) or len(window_size) != 2:
+            window_size = [1240, 780]
+        self.resize(max(960, int(window_size[0])), max(640, int(window_size[1])))
         self.setMinimumSize(960, 640)
         self.setUnifiedTitleAndToolBarOnMac(True)
         self.notes = self.load()
         self.current = None
-        self.theme = "春日"
+        self.theme = self.preferences.get("theme", "春日")
+        if self.theme not in THEMES:
+            self.theme = "春日"
         self.selected_date = ""
+        self.favorite_only = False
+        self.draft_date = date.today().isoformat()
         self.loading_editor = False
         self.build()
+        split_sizes = self.preferences.get("split_sizes")
+        if isinstance(split_sizes, list) and len(split_sizes) == 2:
+            self.split.setSizes([max(220, int(value)) for value in split_sizes])
+        motion_enabled = bool(self.preferences.get("motion", True))
+        self.motion.setChecked(motion_enabled)
+        self.toggle_motion(motion_enabled)
         self.apply_theme()
         self.refresh()
 
@@ -71,9 +95,9 @@ class App(QMainWindow):
         root.setObjectName("root")
         self.root = root
         self.setCentralWidget(root)
-        outer = QHBoxLayout(root)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        outer = QVBoxLayout(root)
+        outer.setContentsMargins(16, 14, 16, 16)
+        outer.setSpacing(12)
 
         def soft_shadow(widget, opacity=28):
             effect = QGraphicsDropShadowEffect(widget)
@@ -83,74 +107,86 @@ class App(QMainWindow):
             widget.setGraphicsEffect(effect)
 
         self.side = QWidget()
-        self.side.setObjectName("sidebar")
-        self.side.setFixedWidth(228)
-        sl = QVBoxLayout(self.side)
-        sl.setContentsMargins(22, 26, 22, 24)
+        self.side.setObjectName("topDock")
+        self.side.setFixedHeight(72)
+        sl = QHBoxLayout(self.side)
+        sl.setContentsMargins(18, 11, 12, 11)
         sl.setSpacing(7)
-        self.logo = QLabel("✦  季节笔记\n     SEASON NOTES")
+        self.logo = QLabel("SEASON / 季节手记")
         self.logo.setObjectName("logo")
+        self.logo.setFixedWidth(184)
         sl.addWidget(self.logo)
-        sl.addSpacing(18)
-        self.new = QPushButton("＋  新建笔记")
-        self.new.setObjectName("primary")
-        self.new.clicked.connect(self.new_note)
-        self.new.setFixedHeight(44)
-        sl.addWidget(self.new)
-        sl.addSpacing(20)
-        self.all_label = QLabel("笔记空间")
-        self.all_label.setObjectName("section")
-        sl.addWidget(self.all_label)
-        self.all_btn = QPushButton("所有笔记")
+        self.all_btn = QPushButton("▤  全部笔记")
         self.all_btn.setObjectName("sideItem")
         self.all_btn.clicked.connect(self.clear_filters)
         sl.addWidget(self.all_btn)
-        sl.addSpacing(18)
-        sec = QLabel("季节氛围")
-        sec.setObjectName("section")
-        sl.addWidget(sec)
+        self.favorites_btn = QPushButton("★  收藏")
+        self.favorites_btn.setObjectName("filterButton")
+        self.favorites_btn.setCheckable(True)
+        self.favorites_btn.toggled.connect(self.toggle_favorite_filter)
+        sl.addWidget(self.favorites_btn)
         self.season_buttons = []
+        season_labels = {
+            "春日": "🌱 春",
+            "盛夏": "🌊 夏",
+            "秋意": "🍂 秋",
+            "冬藏": "❄️ 冬",
+        }
         for n in THEMES:
-            b = QPushButton(n)
+            b = QPushButton(season_labels[n])
             b.setObjectName("season")
             b.setCheckable(True)
             b.clicked.connect(lambda _, x=n: self.set_season(x))
             sl.addWidget(b)
             self.season_buttons.append((n, b))
         sl.addStretch()
-        self.motion = QPushButton("动态氛围  开")
+        self.motion = QPushButton("◉  动态")
         self.motion.setObjectName("motionToggle")
         self.motion.setCheckable(True)
         self.motion.setChecked(True)
         self.motion.clicked.connect(self.toggle_motion)
         sl.addWidget(self.motion)
-        self.quote = QLabel("去记录，也去感受。\n今天会有新的好事发生。")
-        self.quote.setObjectName("quote")
-        sl.addWidget(self.quote)
+        self.new = QPushButton("＋  记录今天")
+        self.new.setObjectName("primary")
+        self.new.clicked.connect(self.new_note)
+        self.new.setFixedHeight(44)
+        sl.addWidget(self.new)
         outer.addWidget(self.side)
+        soft_shadow(self.side, 22)
         main = QWidget()
         main.setObjectName("main")
         ml = QVBoxLayout(main)
-        ml.setContentsMargins(28, 23, 28, 26)
-        ml.setSpacing(14)
+        ml.setContentsMargins(4, 2, 4, 2)
+        ml.setSpacing(12)
         outer.addWidget(main, 1)
         head = QHBoxLayout()
         head.setSpacing(12)
-        greeting = QVBoxLayout()
-        greeting.setSpacing(2)
+        greeting_card = QWidget()
+        greeting_card.setObjectName("greetingCard")
+        greeting = QVBoxLayout(greeting_card)
+        greeting.setContentsMargins(10, 6, 10, 7)
+        greeting.setSpacing(1)
+        self.day_stamp = QLabel(datetime.now().strftime("TODAY  ·  %m.%d"))
+        self.day_stamp.setObjectName("dayStamp")
+        greeting.addWidget(self.day_stamp)
         hour = datetime.now().hour
         hello = "早上好" if hour < 11 else "午后好" if hour < 18 else "晚上好"
         self.hello = QLabel(hello)
         self.hello.setObjectName("hello")
         greeting.addWidget(self.hello)
-        sub = QLabel("把今天的小小闪光，安静地收藏起来。")
+        sub = QLabel("让文字和此刻的风景，一起留在今天。")
         sub.setObjectName("sub")
         greeting.addWidget(sub)
-        head.addLayout(greeting)
+        head.addWidget(greeting_card)
+        self.quote = QLabel("今天的风景，值得被认真收藏。")
+        self.quote.setObjectName("quote")
+        self.quote.setMinimumWidth(250)
+        self.quote.setAlignment(Qt.AlignCenter)
+        head.addWidget(self.quote)
         head.addStretch()
         self.mood = SeasonMood()
         head.addWidget(self.mood)
-        self.status = QLabel("●  内容已保存")
+        self.status = QLabel("●  已保存")
         self.status.setObjectName("status")
         head.addWidget(self.status)
         ml.addLayout(head)
@@ -161,7 +197,7 @@ class App(QMainWindow):
         bar.setSpacing(8)
         self.search = QLineEdit()
         self.search.setObjectName("search")
-        self.search.setPlaceholderText("搜索笔记内容…")
+        self.search.setPlaceholderText("搜索标题、正文或日期…")
         self.search.returnPressed.connect(self.refresh)
         bar.addWidget(self.search, 1)
         self.date_button = QPushButton("选择日期  ▾")
@@ -169,11 +205,11 @@ class App(QMainWindow):
         self.date_button.setMinimumWidth(132)
         self.date_button.clicked.connect(self.choose_date)
         bar.addWidget(self.date_button)
-        self.search_btn = QPushButton("查找")
+        self.search_btn = QPushButton("搜索")
         self.search_btn.setObjectName("compactPrimary")
         self.search_btn.clicked.connect(self.refresh)
         bar.addWidget(self.search_btn)
-        self.reset = QPushButton("清空")
+        self.reset = QPushButton("重置")
         self.reset.setObjectName("quiet")
         self.reset.clicked.connect(self.clear_filters)
         bar.addWidget(self.reset)
@@ -189,7 +225,7 @@ class App(QMainWindow):
         ll.setContentsMargins(14, 15, 14, 14)
         ll.setSpacing(10)
         list_head = QHBoxLayout()
-        list_title = QLabel("最近笔记")
+        list_title = QLabel("最近记录")
         list_title.setObjectName("cardTitle")
         list_head.addWidget(list_title)
         list_head.addStretch()
@@ -202,6 +238,7 @@ class App(QMainWindow):
         self.list = QListWidget()
         self.list.setObjectName("noteList")
         self.list.setSpacing(4)
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list.currentRowChanged.connect(self.pick)
         self.list_stack.addWidget(self.list)
         self.list_empty = QWidget()
@@ -241,19 +278,30 @@ class App(QMainWindow):
         self.favorite.clicked.connect(self.toggle_favorite)
         top.addWidget(self.favorite)
         rl.addLayout(top)
-        self.meta = QLabel("选择一篇笔记，或开始新的记录")
+        self.meta = QPushButton("选择一篇笔记，或开始新的记录")
         self.meta.setObjectName("meta")
+        self.meta.setToolTip("修改这篇笔记的记录日期")
+        self.meta.clicked.connect(self.choose_note_date)
         rl.addWidget(self.meta)
         tools = QHBoxLayout()
         tools.setSpacing(6)
         self.format_buttons = {}
+        for text, tooltip, fn in [
+            ("↶", "撤销（⌘Z）", lambda: self.editor.undo()),
+            ("↷", "重做（⇧⌘Z）", lambda: self.editor.redo()),
+        ]:
+            button = QToolButton()
+            button.setText(text)
+            button.setToolTip(tooltip)
+            button.clicked.connect(fn)
+            tools.addWidget(button)
         for text, fn in [
             ("B", lambda: self.fmt("bold")),
             ("I", lambda: self.fmt("italic")),
             ("U", lambda: self.fmt("underline")),
-            ("清单", self.checklist),
-            ("表格", self.table),
-            ("图片", self.image),
+            ("☑ 清单", self.checklist),
+            ("▦ 表格", self.table),
+            ("▧ 图片", self.image),
         ]:
             b = QToolButton()
             b.setText(text)
@@ -276,15 +324,19 @@ class App(QMainWindow):
         )
         rl.addWidget(self.editor, 1)
         footer = QHBoxLayout()
+        self.count_label = QLabel("0 字 · 1 行")
+        self.count_label.setObjectName("muted")
+        footer.addWidget(self.count_label)
         footer.addStretch()
-        self.save = QPushButton("保存这一刻")
+        self.save = QPushButton("完成记录")
         self.save.setObjectName("primary")
         self.save.clicked.connect(self.save_note)
-        self.save.setFixedWidth(128)
+        self.save.setFixedWidth(116)
         footer.addWidget(self.save)
         rl.addLayout(footer)
         split.addWidget(right)
         soft_shadow(right)
+        self.split = split
         split.setSizes([300, 700])
         split.setHandleWidth(14)
         self.overlay = SeasonalOverlay(root)
@@ -300,56 +352,131 @@ class App(QMainWindow):
         self.autosave_timer.timeout.connect(self.auto_save)
         self.title.textChanged.connect(self.schedule_autosave)
         self.editor.textChanged.connect(self.schedule_autosave)
+        self.editor.textChanged.connect(self.update_count)
         self.editor.currentCharFormatChanged.connect(self.sync_format_buttons)
+        self.editor.imagePasted.connect(self.insert_clipboard_image)
+        self.install_shortcuts()
+
+    def install_shortcuts(self):
+        self.shortcuts = []
+
+        def add(sequence, callback):
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.activated.connect(callback)
+            self.shortcuts.append(shortcut)
+
+        add("Meta+N", self.new_note)
+        add("Meta+S", self.save_note)
+        add("Meta+F", self.focus_search)
+        add("Meta+Shift+F", lambda: self.favorites_btn.setChecked(not self.favorite_only))
+
+    def focus_search(self):
+        self.search.setFocus()
+        self.search.selectAll()
 
     def toggle_motion(self, enabled):
         self.overlay.set_animation_enabled(enabled)
         self.mood.set_animation_enabled(enabled)
-        self.motion.setText("动态氛围  开" if enabled else "动态氛围  关")
+        self.motion.setText("◉  动态" if enabled else "○  静止")
+
+    def toggle_favorite_filter(self, enabled):
+        self.favorite_only = enabled
+        self.refresh()
+
+    def update_count(self):
+        text = self.editor.toPlainText()
+        characters = len("".join(text.split()))
+        lines = max(1, text.count("\n") + 1)
+        self.count_label.setText(f"{characters} 字 · {lines} 行")
 
     def style(self):
         bg, panel, accent, text, _ = THEMES[self.theme]
         panel_color = QColor(panel)
-        sidebar_color = QColor(bg).lighter(103)
-        panel_rgba = f"rgba({panel_color.red()},{panel_color.green()},{panel_color.blue()},239)"
-        sr, sg, sb = sidebar_color.red(), sidebar_color.green(), sidebar_color.blue()
-        sidebar_rgba = (f"qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-                        f"stop:0 rgba({sr},{sg},{sb},240),"
-                        f"stop:0.60 rgba({sr},{sg},{sb},226),"
-                        f"stop:0.79 rgba({sr},{sg},{sb},45),"
-                        f"stop:1 rgba({sr},{sg},{sb},210))")
         selected = {"春日": "#ffead9", "盛夏": "#ffebc7", "秋意": "#f7dfd0", "冬藏": "#e2edf8"}[
             self.theme
         ]
+        selected_color = QColor(selected)
+        pr, pg, pb = panel_color.red(), panel_color.green(), panel_color.blue()
+        xr, xg, xb = selected_color.red(), selected_color.green(), selected_color.blue()
+        sidebar_glass = f"rgba({pr},{pg},{pb},214)"
+        panel_glass = f"rgba({pr},{pg},{pb},226)"
+        soft_glass = f"rgba({pr},{pg},{pb},166)"
+        selected_glass = f"rgba({xr},{xg},{xb},224)"
         accent2 = QColor(accent).lighter(118).name()
+        quiet_text = QColor(text).lighter(145).name()
         self.setStyleSheet(f"""
-   QMainWindow,#root{{background:{bg};}} #main{{background:transparent;}} QWidget{{font-family:"SF Pro Display","PingFang SC",Arial;color:{text};font-size:13px;}}
-#sidebar{{background:{sidebar_rgba};border-right:1px solid {QColor(bg).darker(104).name()};}}
-	 #logo{{font-size:18px;font-weight:700;line-height:1.2;letter-spacing:1px;}} #hello{{font-size:28px;font-weight:700;}} #sub,#meta,#status,#quote,#muted{{color:{accent};}} #sub{{font-size:12px;}} #quote{{font-size:12px;line-height:1.6;}}
-   #hello,#sub,#status{{background:rgba(255,250,241,220);border-radius:8px;padding:4px 10px;}}
-   #quote{{background:rgba(255,250,241,225);border-radius:8px;padding:7px;color:{text};}}
-   #section{{font-size:11px;font-weight:700;color:{QColor(text).lighter(145).name()};margin:5px 0;letter-spacing:1px;}}
-	 QPushButton,QToolButton{{border:0;border-radius:10px;padding:8px 13px;background:{QColor(panel).darker(101).name()};color:{text};font-weight:600;}}
-  	 QPushButton:hover,QToolButton:hover{{background:{selected};}} QToolButton:checked{{background:{accent};color:white;}} #primary,#compactPrimary{{background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {accent},stop:1 {accent2});color:white;}} #primary:hover,#compactPrimary:hover{{background:{accent2};}}
-  	 #sideItem,#season{{text-align:left;background:transparent;padding:10px 12px;}} #sideItem:hover,#season:hover{{background:{selected};}}
-  	 #season:checked{{background:{panel};color:{accent};font-weight:700;border:1px solid {selected};}}
-	 #searchCard,#listCard,#editorCard{{background:{panel_rgba};border:1px solid {QColor(bg).darker(104).name()};border-radius:18px;}}
-  	 #search,#dateButton{{background:{QColor(bg).lighter(106).name()};border:0;border-radius:8px;padding:9px 11px;selection-background-color:{accent};}} #dateButton{{text-align:left;}}
-   #dateButton[activeDate="true"]{{background:{selected};color:{accent};font-weight:700;}}
-   #search{{min-height:20px;}} #quiet{{background:transparent;color:{accent};}} #danger{{background:transparent;color:#a75b54;}}
-  	 #cardTitle{{font-size:15px;font-weight:700;}} #title{{font-size:25px;font-weight:700;border:0;background:transparent;padding:3px 0;}}
-   #noteList,#listStack{{background:transparent;border:0;outline:0;}} #noteList::item{{padding:0;border:0;}} #noteItem{{background:transparent;border-radius:12px;}} #noteItem:hover{{background:{bg};}} #noteItem[selected="true"]{{background:{selected};}} #noteItemTitle{{font-size:14px;font-weight:700;}} #notePreview{{font-size:12px;color:{QColor(text).lighter(138).name()};}} #noteItemMeta{{font-size:11px;color:{accent};}} #noteFavorite{{color:{accent};font-size:13px;}} #emptyIcon{{font-size:28px;color:{accent};}} #emptyTitle{{font-size:15px;font-weight:700;}} #emptyHint{{font-size:12px;color:{QColor(text).lighter(145).name()};}} #motionToggle{{text-align:left;background:transparent;color:{QColor(text).lighter(135).name()};font-size:11px;padding:8px 10px;}}
-   #editor{{background:transparent;border:0;border-top:1px solid {bg};padding:16px 3px;font-size:15px;selection-background-color:{selected};}}
-   QSplitter::handle{{background:transparent;}} QDialog#sheetDialog{{background:{panel};}} #dialogTitle{{font-size:21px;font-weight:700;}} #dialogSub{{font-size:12px;color:{accent};}} #dialogCard{{background:{bg};border-radius:14px;}} #selectedDate{{font-size:17px;font-weight:700;color:{accent};padding:8px;}}
-   QSpinBox{{background:{panel};border:1px solid {selected};border-radius:9px;padding:7px 10px;min-width:74px;}} QCheckBox{{spacing:8px;}}
-   QCalendarWidget QWidget{{background:{panel};}} QCalendarWidget QToolButton{{color:{text};padding:7px;}} QCalendarWidget QAbstractItemView:enabled{{selection-background-color:{accent};selection-color:white;alternate-background-color:{panel};outline:0;}} QCalendarWidget QTableView{{border:0;}}
+QMainWindow,#root{{background:{bg};}}
+#main{{background:transparent;}}
+QWidget{{font-family:"SF Pro Display","PingFang SC",Arial;color:{text};font-size:13px;}}
+#topDock{{background:{sidebar_glass};border:0;border-radius:23px;}}
+#logo{{font-size:16px;font-weight:850;letter-spacing:1.2px;}}
+#greetingCard{{background:{soft_glass};border-radius:17px;}}
+#dayStamp{{font-size:10px;font-weight:800;color:{accent};letter-spacing:2px;}}
+#hello{{font-size:32px;font-weight:800;letter-spacing:-1px;}}
+#sub{{font-size:12px;color:{quiet_text};}}
+#status{{background:{selected_glass};color:{text};border-radius:14px;padding:7px 11px;font-size:11px;font-weight:700;}}
+#quote{{background:{selected_glass};border-radius:16px;padding:9px 14px;color:{text};font-size:11px;font-weight:650;}}
+#meta,#muted{{color:{quiet_text};}}
+#meta{{background:transparent;text-align:left;padding:3px 2px;font-size:11px;}}
+#section{{font-size:9px;font-weight:800;color:{quiet_text};margin:6px 2px;letter-spacing:2px;}}
+QPushButton,QToolButton{{border:0;border-radius:12px;padding:8px 13px;background:{soft_glass};color:{text};font-weight:650;}}
+QPushButton:hover,QToolButton:hover{{background:{selected_glass};}}
+QToolButton:checked{{background:{accent};color:white;}}
+#primary,#compactPrimary{{background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {accent},stop:1 {accent2});color:white;font-weight:800;}}
+#primary:hover,#compactPrimary:hover{{background:{accent2};}}
+#sideItem,#season,#filterButton{{background:rgba(255,255,255,65);padding:9px 11px;border-radius:13px;}}
+#sideItem:hover,#season:hover,#filterButton:hover{{background:{selected_glass};}}
+#season:checked,#filterButton:checked{{background:{accent};color:white;font-weight:800;}}
+#motionToggle{{background:{soft_glass};color:{quiet_text};font-size:10px;padding:9px 11px;}}
+#searchCard{{background:{sidebar_glass};border:0;border-radius:20px;}}
+#listCard{{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 {panel_glass},stop:1 {selected_glass});border:0;border-radius:26px;}}
+#editorCard{{background:{panel_glass};border:0;border-radius:26px;}}
+#search,#dateButton{{background:rgba(255,255,255,150);border:0;border-radius:12px;padding:9px 12px;selection-background-color:{accent};}}
+#dateButton{{text-align:left;}}
+#dateButton[activeDate="true"]{{background:{selected_glass};color:{accent};font-weight:800;}}
+#search{{min-height:20px;}}
+#quiet{{background:rgba(255,255,255,85);color:{accent};}}
+#danger{{background:transparent;color:#bd5b58;}}
+#cardTitle{{font-size:16px;font-weight:800;}}
+#title{{font-size:27px;font-weight:800;border:0;background:transparent;padding:4px 2px;selection-background-color:{selected};}}
+#noteList,#listStack{{background:transparent;border:0;outline:0;}}
+#noteList::item{{padding:0;border:0;}}
+#noteItem{{background:rgba(255,255,255,70);border-radius:15px;}}
+#noteItem:hover{{background:rgba(255,255,255,145);}}
+#noteItem[selected="true"]{{background:rgba(255,255,255,205);}}
+#noteItemTitle{{font-size:14px;font-weight:750;}}
+#notePreview{{font-size:12px;color:{quiet_text};}}
+#noteItemMeta{{font-size:10px;color:{accent};font-weight:700;}}
+#noteFavorite{{color:{accent};font-size:13px;}}
+#emptyIcon{{font-size:30px;color:{accent};}}
+#emptyTitle{{font-size:15px;font-weight:800;}}
+#emptyHint{{font-size:12px;color:{quiet_text};}}
+#editor{{background:rgba(255,255,255,112);border:0;border-radius:18px;padding:18px;font-size:15px;selection-background-color:{selected};}}
+QSplitter::handle{{background:transparent;}}
+QDialog#sheetDialog{{background:{panel};}}
+#dialogTitle{{font-size:21px;font-weight:800;}}
+#dialogSub{{font-size:12px;color:{quiet_text};}}
+#dialogCard{{background:{selected};border-radius:16px;}}
+#selectedDate{{font-size:17px;font-weight:800;color:{accent};padding:8px;}}
+QSpinBox{{background:{panel};border:0;border-radius:11px;padding:8px 10px;min-width:74px;}}
+QCheckBox{{spacing:8px;}}
+QCalendarWidget QWidget{{background:{panel};}}
+QCalendarWidget QToolButton{{color:{text};padding:7px;}}
+QCalendarWidget QAbstractItemView:enabled{{selection-background-color:{accent};selection-color:white;alternate-background-color:{panel};outline:0;}}
+QCalendarWidget QTableView{{border:0;}}
    """)
 
     def apply_theme(self):
         self.style()
         self.overlay.set_season(self.theme)
         self.mood.set_season(self.theme)
-        self.quote.setText(self.overlay.SCENE_NAMES[self.theme] + "\n让风景陪你，慢慢写。")
+        copy = {
+            "春日": "樱花创作间\n让新想法和雨声一起发芽。",
+            "盛夏": "海边冲浪屋\n把阳光、海风和心事都写下。",
+            "秋意": "秋日艺术校园\n唱片转动，灵感也正好降落。",
+            "冬藏": "城市放映夜\n窗外落雪，房间里仍有热爱。",
+        }
+        self.quote.setText(copy[self.theme])
         self.mood.setToolTip(self.overlay.SCENE_NAMES[self.theme])
         for name, button in self.season_buttons:
             button.setChecked(name == self.theme)
@@ -454,6 +581,58 @@ class App(QMainWindow):
         cancel.clicked.connect(dialog.reject)
         dialog.exec()
 
+    def choose_note_date(self):
+        dialog = QDialog(self)
+        dialog.setObjectName("sheetDialog")
+        dialog.setWindowTitle("修改笔记日期")
+        dialog.setModal(True)
+        dialog.setFixedWidth(420)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(22, 22, 22, 18)
+        layout.setSpacing(12)
+
+        title = QLabel("这篇笔记属于哪一天？")
+        title.setObjectName("dialogTitle")
+        layout.addWidget(title)
+        hint = QLabel("适合补记旅行、日记或过去某一天的灵感。")
+        hint.setObjectName("dialogSub")
+        layout.addWidget(hint)
+
+        calendar = QCalendarWidget()
+        calendar.setGridVisible(False)
+        calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+        calendar.setHorizontalHeaderFormat(QCalendarWidget.ShortDayNames)
+        initial = QDate.fromString(self.draft_date, "yyyy-MM-dd")
+        calendar.setSelectedDate(initial if initial.isValid() else QDate.currentDate())
+        layout.addWidget(calendar)
+
+        actions = QHBoxLayout()
+        today = QPushButton("今天")
+        cancel = QPushButton("取消")
+        apply_button = QPushButton("使用这个日期")
+        apply_button.setObjectName("compactPrimary")
+        actions.addWidget(today)
+        actions.addStretch()
+        actions.addWidget(cancel)
+        actions.addWidget(apply_button)
+        layout.addLayout(actions)
+
+        today.clicked.connect(lambda: calendar.setSelectedDate(QDate.currentDate()))
+        cancel.clicked.connect(dialog.reject)
+        apply_button.clicked.connect(dialog.accept)
+        calendar.activated.connect(lambda _: dialog.accept())
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        self.draft_date = calendar.selectedDate().toString("yyyy-MM-dd")
+        season = self.current.get("season", self.theme) if self.current else self.theme
+        self.meta.setText(f"📅  {self.draft_date}  ·  {season}")
+        if self.current:
+            self.current["date"] = self.draft_date
+            self.persist()
+            self.refresh(self.current["id"])
+        self.status.setText("●  日期已更新")
+
     def update_date_button(self):
         self.date_button.setText(
             ("日期  " + self.selected_date if self.selected_date else "选择日期") + "  ▾"
@@ -465,6 +644,8 @@ class App(QMainWindow):
     def clear_filters(self):
         self.search.clear()
         self.selected_date = ""
+        self.favorite_only = False
+        self.favorites_btn.setChecked(False)
         self.update_date_button()
         self.refresh()
 
@@ -476,25 +657,28 @@ class App(QMainWindow):
             for n in self.notes
             if (not q or q in (n.get("title", "") + n.get("body", "") + n.get("date", "")).lower())
             and (not ds or n.get("date", "") == ds)
+            and (not self.favorite_only or n.get("favorite", False))
         ]
         self.list.blockSignals(True)
         self.list.clear()
         for n in items:
             item = QListWidgetItem()
-            item.setSizeHint(QSize(240, 82))
+            item.setSizeHint(QSize(0, 82))
             item.setData(Qt.UserRole, n.get("id"))
             self.list.addItem(item)
             self.list.setItemWidget(item, NoteListItem(n))
         self.list.blockSignals(False)
         self.visible = items
-        self.all_btn.setText(f"所有笔记   {len(self.notes)}")
+        self.all_btn.setText(f"▤  全部笔记   {len(self.notes)}")
         self.list_count.setText(f"{len(items)} 篇")
         self.list_stack.setCurrentWidget(self.list if items else self.list_empty)
         if not items:
-            filtering = bool(q or ds)
+            filtering = bool(q or ds or self.favorite_only)
             self.empty_title.setText("没有找到匹配的笔记" if filtering else "今天还没有笔记")
             self.empty_hint.setText(
-                "换个关键词或清空日期再试试。" if filtering else "写下第一句话，季节就有了形状。"
+                "调整搜索、日期或收藏条件再试试。"
+                if filtering
+                else "写下第一句话，季节就有了形状。"
             )
         if items:
             wanted = select_id or (self.current.get("id") if self.current else None)
@@ -508,6 +692,7 @@ class App(QMainWindow):
         self.loading_editor = True
         n = self.visible[row]
         self.current = n
+        self.draft_date = n.get("date", date.today().isoformat())
         for index in range(self.list.count()):
             widget = self.list.itemWidget(self.list.item(index))
             if widget:
@@ -517,7 +702,7 @@ class App(QMainWindow):
             self.editor.setHtml(n["body_html"])
         else:
             self.editor.setPlainText(n.get("body", ""))
-        self.meta.setText(f"{n.get('date', '')}  ·  {n.get('season', '春日')}")
+        self.meta.setText(f"📅  {self.draft_date}  ·  {n.get('season', '春日')}")
         self.favorite.setText("★ 已收藏" if n.get("favorite") else "☆ 收藏")
         self.loading_editor = False
         self.sync_format_buttons(self.editor.currentCharFormat())
@@ -526,9 +711,10 @@ class App(QMainWindow):
         self.autosave_timer.stop()
         self.loading_editor = True
         self.current = None
+        self.draft_date = date.today().isoformat()
         self.title.clear()
         self.editor.clear()
-        self.meta.setText(date.today().isoformat() + f"  ·  {self.theme}")
+        self.meta.setText(f"📅  {self.draft_date}  ·  {self.theme}")
         self.favorite.setText("☆ 收藏")
         self.loading_editor = False
         self.editor.setFocus()
@@ -551,7 +737,7 @@ class App(QMainWindow):
         html = self.editor.toHtml()
         n = self.current or {
             "id": str(uuid.uuid4()),
-            "date": date.today().isoformat(),
+            "date": self.draft_date,
             "favorite": False,
         }
         n.update(title=t, body=b, body_html=html, season=self.theme)
@@ -579,6 +765,7 @@ class App(QMainWindow):
             self.current["favorite"] = not self.current.get("favorite", False)
             self.favorite.setText("★ 已收藏" if self.current["favorite"] else "☆ 收藏")
             self.persist()
+            self.refresh(self.current["id"])
 
     def fmt(self, kind):
         cur = self.editor.textCursor()
@@ -743,11 +930,23 @@ class App(QMainWindow):
             except OSError as error:
                 QMessageBox.warning(self, "图片插入失败", f"无法保存图片副本：\n{error}")
                 return
-            fmt = QTextImageFormat()
-            fmt.setName(stored)
-            fmt.setWidth(min(520, max(280, self.editor.viewport().width() - 40)))
-            self.editor.textCursor().insertImage(fmt)
-            self.editor.setFocus()
+            self.insert_stored_image(stored)
+
+    def insert_clipboard_image(self, image: QImage):
+        os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
+        stored = os.path.join(ATTACHMENTS_DIR, str(uuid.uuid4()) + ".png")
+        if not image.save(stored, "PNG"):
+            QMessageBox.warning(self, "图片粘贴失败", "无法保存剪贴板中的图片。")
+            return
+        self.insert_stored_image(stored)
+
+    def insert_stored_image(self, stored):
+        fmt = QTextImageFormat()
+        fmt.setName(str(stored))
+        fmt.setWidth(min(560, max(260, self.editor.viewport().width() - 46)))
+        self.editor.textCursor().insertImage(fmt)
+        self.editor.setFocus()
+        self.status.setText("●  图片已插入")
 
     def closeEvent(self, event):
         self.autosave_timer.stop()
@@ -755,6 +954,14 @@ class App(QMainWindow):
             self.current or self.title.text().strip() or self.editor.toPlainText().strip()
         ):
             self.save_note(True)
+        save_settings(
+            {
+                "theme": self.theme,
+                "motion": self.motion.isChecked(),
+                "window_size": [self.width(), self.height()],
+                "split_sizes": self.split.sizes(),
+            }
+        )
         event.accept()
 
     def changeEvent(self, event):
