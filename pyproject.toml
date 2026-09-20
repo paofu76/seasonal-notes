@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "seasonal-notes"
-version = "0.5.1"
+version = "0.6.0"
 description = "四季主题的本地桌面笔记应用"
 requires-python = ">=3.10"
 dependencies = ["PySide6>=6.8,<7"]

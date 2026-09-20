@@ -7,7 +7,15 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QDate, QTimer
-from PySide6.QtWidgets import QApplication, QCalendarWidget, QDialog, QPushButton
+from PySide6.QtWidgets import (
+    QApplication,
+    QCalendarWidget,
+    QCheckBox,
+    QDialog,
+    QLineEdit,
+    QMenu,
+    QPushButton,
+)
 
 from seasonal_notes import storage
 from seasonal_notes.ui.main_window import App
@@ -27,6 +35,7 @@ class UiSmokeTests(unittest.TestCase):
             ATTACHMENTS_DIR=root / "attachments",
             DATA=root / "notes.json",
             SETTINGS=root / "settings.json",
+            BACKUP_DIR=root / "backups",
             LEGACY_DATA=root / "missing-legacy.json",
         )
         self.storage_patch.start()
@@ -68,6 +77,26 @@ class UiSmokeTests(unittest.TestCase):
         self.assertEqual(len(self.window.visible), 1)
         self.assertTrue(self.window.visible[0]["favorite"])
 
+        def organize_note():
+            for dialog in QApplication.topLevelWidgets():
+                if isinstance(dialog, QDialog) and dialog.windowTitle() == "分类与标签":
+                    fields = dialog.findChildren(QLineEdit)
+                    fields[0].setText("旅行")
+                    fields[1].setText("海边，周末")
+                    dialog.findChild(QCheckBox).setChecked(True)
+                    for button in dialog.findChildren(QPushButton):
+                        if button.text() == "保存分类":
+                            button.click()
+                            return
+
+        QTimer.singleShot(20, organize_note)
+        self.window.organize_note()
+        self.assertEqual(self.window.current["folder"], "旅行")
+        self.assertEqual(self.window.current["tags"], ["海边", "周末"])
+        self.assertTrue(self.window.current["archived"])
+        self.window.archive_btn.setChecked(True)
+        self.assertEqual(len(self.window.visible), 1)
+
     def test_checklist_table_and_date_picker(self):
         self.window.editor.clear()
         self.window.checklist()
@@ -86,6 +115,11 @@ class UiSmokeTests(unittest.TestCase):
         table = self.window.editor.textCursor().currentTable()
         self.assertIsNotNone(table)
         self.assertEqual((table.rows(), table.columns()), (4, 3))
+        menu = QMenu()
+        self.window.editor._add_table_actions(menu, self.window.editor.textCursor(), table)
+        table_menu = menu.actions()[-1].menu()
+        next(action for action in table_menu.actions() if action.text() == "在下方添加一行").trigger()
+        self.assertEqual(table.rows(), 5)
 
         chosen = QDate(2026, 8, 18)
 

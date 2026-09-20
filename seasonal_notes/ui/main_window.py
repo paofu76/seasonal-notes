@@ -35,12 +35,17 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QListWidgetItem,
     QStackedWidget,
+    QMenu,
 )
 
 
 from seasonal_notes.storage import (
     ATTACHMENTS_DIR,
+    cleanup_attachments,
+    create_daily_backup,
     ensure_storage,
+    export_archive,
+    import_archive,
     load_notes,
     load_settings,
     save_notes,
@@ -50,6 +55,7 @@ from seasonal_notes.themes import THEMES
 from .animations import SeasonalOverlay, SeasonMood
 from .editor import NoteEditor
 from .note_item import NoteListItem
+from .note_calendar import NoteCalendar
 from .table_preview import TablePreview
 
 
@@ -57,6 +63,7 @@ class App(QMainWindow):
     def __init__(self):
         super().__init__()
         ensure_storage()
+        create_daily_backup()
         self.preferences = load_settings()
         self.setWindowTitle("季节笔记")
         window_size = self.preferences.get("window_size", [1240, 780])
@@ -72,7 +79,11 @@ class App(QMainWindow):
             self.theme = "春日"
         self.selected_date = ""
         self.favorite_only = False
+        self.archive_only = False
         self.draft_date = date.today().isoformat()
+        self.draft_folder = "随手记"
+        self.draft_tags = []
+        self.draft_archived = False
         self.loading_editor = False
         self.build()
         split_sizes = self.preferences.get("split_sizes")
@@ -114,17 +125,25 @@ class App(QMainWindow):
         sl.setSpacing(7)
         self.logo = QLabel("SEASON / 季节手记")
         self.logo.setObjectName("logo")
-        self.logo.setFixedWidth(184)
+        self.logo.setFixedWidth(172)
         sl.addWidget(self.logo)
-        self.all_btn = QPushButton("▤  全部笔记")
+        self.all_btn = QPushButton("▤  0")
         self.all_btn.setObjectName("sideItem")
+        self.all_btn.setToolTip("显示全部未归档笔记")
         self.all_btn.clicked.connect(self.clear_filters)
         sl.addWidget(self.all_btn)
         self.favorites_btn = QPushButton("★  收藏")
         self.favorites_btn.setObjectName("filterButton")
+        self.favorites_btn.setToolTip("只看收藏笔记")
         self.favorites_btn.setCheckable(True)
         self.favorites_btn.toggled.connect(self.toggle_favorite_filter)
         sl.addWidget(self.favorites_btn)
+        self.archive_btn = QPushButton("⌁  归档")
+        self.archive_btn.setObjectName("filterButton")
+        self.archive_btn.setToolTip("查看已归档笔记")
+        self.archive_btn.setCheckable(True)
+        self.archive_btn.toggled.connect(self.toggle_archive_filter)
+        sl.addWidget(self.archive_btn)
         self.season_buttons = []
         season_labels = {
             "春日": "🌱 春",
@@ -146,6 +165,17 @@ class App(QMainWindow):
         self.motion.setChecked(True)
         self.motion.clicked.connect(self.toggle_motion)
         sl.addWidget(self.motion)
+        self.more = QToolButton()
+        self.more.setObjectName("moreButton")
+        self.more.setText("•••")
+        self.more.setPopupMode(QToolButton.InstantPopup)
+        self.more_menu = QMenu(self.more)
+        self.more_menu.addAction("导出完整备份…", self.export_data)
+        self.more_menu.addAction("从备份恢复…", self.import_data)
+        self.more_menu.addSeparator()
+        self.more_menu.addAction("清理未使用附件", self.cleanup_unused_attachments)
+        self.more.setMenu(self.more_menu)
+        sl.addWidget(self.more)
         self.new = QPushButton("＋  记录今天")
         self.new.setObjectName("primary")
         self.new.clicked.connect(self.new_note)
@@ -277,6 +307,10 @@ class App(QMainWindow):
         self.favorite.setObjectName("quiet")
         self.favorite.clicked.connect(self.toggle_favorite)
         top.addWidget(self.favorite)
+        self.organize = QPushButton("🏷 分类")
+        self.organize.setObjectName("quiet")
+        self.organize.clicked.connect(self.organize_note)
+        top.addWidget(self.organize)
         rl.addLayout(top)
         self.meta = QPushButton("选择一篇笔记，或开始新的记录")
         self.meta.setObjectName("meta")
@@ -383,11 +417,25 @@ class App(QMainWindow):
         self.favorite_only = enabled
         self.refresh()
 
+    def toggle_archive_filter(self, enabled):
+        self.archive_only = enabled
+        self.refresh()
+
     def update_count(self):
         text = self.editor.toPlainText()
         characters = len("".join(text.split()))
         lines = max(1, text.count("\n") + 1)
         self.count_label.setText(f"{characters} 字 · {lines} 行")
+
+    def update_meta(self, season=None):
+        season = season or (self.current.get("season", self.theme) if self.current else self.theme)
+        tags = "  ".join(f"#{tag}" for tag in self.draft_tags)
+        parts = [f"📅  {self.draft_date}", season, self.draft_folder]
+        if tags:
+            parts.append(tags)
+        if self.draft_archived:
+            parts.append("已归档")
+        self.meta.setText("  ·  ".join(parts))
 
     def style(self):
         bg, panel, accent, text, _ = THEMES[self.theme]
@@ -428,6 +476,7 @@ QToolButton:checked{{background:{accent};color:white;}}
 #sideItem:hover,#season:hover,#filterButton:hover{{background:{selected_glass};}}
 #season:checked,#filterButton:checked{{background:{accent};color:white;font-weight:800;}}
 #motionToggle{{background:{soft_glass};color:{quiet_text};font-size:10px;padding:9px 11px;}}
+#moreButton{{min-width:26px;padding:9px 8px;background:{soft_glass};}}
 #searchCard{{background:{sidebar_glass};border:0;border-radius:20px;}}
 #listCard{{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 {panel_glass},stop:1 {selected_glass});border:0;border-radius:26px;}}
 #editorCard{{background:{panel_glass};border:0;border-radius:26px;}}
@@ -454,6 +503,7 @@ QToolButton:checked{{background:{accent};color:white;}}
 #editor{{background:rgba(255,255,255,112);border:0;border-radius:18px;padding:18px;font-size:15px;selection-background-color:{selected};}}
 QSplitter::handle{{background:transparent;}}
 QDialog#sheetDialog{{background:{panel};}}
+QDialog QLineEdit{{background:{selected};border:0;border-radius:11px;padding:9px 11px;selection-background-color:{accent};}}
 #dialogTitle{{font-size:21px;font-weight:800;}}
 #dialogSub{{font-size:12px;color:{quiet_text};}}
 #dialogCard{{background:{selected};border-radius:16px;}}
@@ -464,6 +514,10 @@ QCalendarWidget QWidget{{background:{panel};}}
 QCalendarWidget QToolButton{{color:{text};padding:7px;}}
 QCalendarWidget QAbstractItemView:enabled{{selection-background-color:{accent};selection-color:white;alternate-background-color:{panel};outline:0;}}
 QCalendarWidget QTableView{{border:0;}}
+#calendarNotes{{background:rgba(255,255,255,135);border:0;border-radius:11px;padding:5px;outline:0;}}
+QMenu{{background:{panel};border:0;border-radius:10px;padding:7px;}}
+QMenu::item{{padding:8px 24px 8px 12px;border-radius:7px;}}
+QMenu::item:selected{{background:{selected};}}
    """)
 
     def apply_theme(self):
@@ -507,14 +561,14 @@ QCalendarWidget QTableView{{border:0;}}
         dialog.setObjectName("sheetDialog")
         dialog.setWindowTitle("按日期查找笔记")
         dialog.setModal(True)
-        dialog.setFixedWidth(440)
+        dialog.setFixedWidth(720)
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(22, 22, 22, 18)
         layout.setSpacing(13)
-        title = QLabel("选择记录日期")
+        title = QLabel("笔记月历")
         title.setObjectName("dialogTitle")
         layout.addWidget(title)
-        hint = QLabel("快速回到某一天，看看当时写下了什么。")
+        hint = QLabel("带数字的日期已有记录；右侧会展示当天的笔记。")
         hint.setObjectName("dialogSub")
         layout.addWidget(hint)
         quick = QHBoxLayout()
@@ -525,7 +579,9 @@ QCalendarWidget QTableView{{border:0;}}
         quick.addWidget(yesterday)
         quick.addStretch()
         layout.addLayout(quick)
-        calendar = QCalendarWidget()
+        body = QHBoxLayout()
+        body.setSpacing(12)
+        calendar = NoteCalendar(self.notes, THEMES[self.theme][2])
         calendar.setObjectName("dateCalendar")
         calendar.setGridVisible(False)
         calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
@@ -533,14 +589,33 @@ QCalendarWidget QTableView{{border:0;}}
         calendar.setMinimumHeight(285)
         if self.selected_date:
             calendar.setSelectedDate(QDate.fromString(self.selected_date, "yyyy-MM-dd"))
-        layout.addWidget(calendar)
+        body.addWidget(calendar, 1)
+
+        day_panel = QWidget()
+        day_panel.setObjectName("dialogCard")
+        day_panel.setMinimumWidth(230)
+        day_layout = QVBoxLayout(day_panel)
+        day_layout.setContentsMargins(12, 12, 12, 12)
         selected = QLabel()
         selected.setObjectName("selectedDate")
-        selected.setAlignment(Qt.AlignCenter)
-        layout.addWidget(selected)
+        selected.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        day_layout.addWidget(selected)
+        day_list = QListWidget()
+        day_list.setObjectName("calendarNotes")
+        day_layout.addWidget(day_list, 1)
+        body.addWidget(day_panel)
+        layout.addLayout(body)
 
         def show_selected():
-            selected.setText(calendar.selectedDate().toString("yyyy 年 MM 月 dd 日"))
+            day = calendar.selectedDate().toString("yyyy-MM-dd")
+            selected.setText(calendar.selectedDate().toString("MM 月 dd 日"))
+            day_list.clear()
+            matching = [note for note in self.notes if note.get("date") == day]
+            for note in matching:
+                marker = "★ " if note.get("favorite") else ""
+                day_list.addItem(marker + (note.get("title") or "无标题笔记"))
+            if not matching:
+                day_list.addItem("这一天还没有记录")
 
         def choose_quick(value):
             calendar.setSelectedDate(value)
@@ -577,6 +652,7 @@ QCalendarWidget QTableView{{border:0;}}
 
         choose.clicked.connect(apply_selected)
         calendar.activated.connect(lambda _: apply_selected())
+        day_list.itemDoubleClicked.connect(lambda _: apply_selected())
         clear.clicked.connect(clear_selected)
         cancel.clicked.connect(dialog.reject)
         dialog.exec()
@@ -625,13 +701,122 @@ QCalendarWidget QTableView{{border:0;}}
             return
 
         self.draft_date = calendar.selectedDate().toString("yyyy-MM-dd")
-        season = self.current.get("season", self.theme) if self.current else self.theme
-        self.meta.setText(f"📅  {self.draft_date}  ·  {season}")
+        self.update_meta()
         if self.current:
             self.current["date"] = self.draft_date
             self.persist()
             self.refresh(self.current["id"])
         self.status.setText("●  日期已更新")
+
+    def organize_note(self):
+        dialog = QDialog(self)
+        dialog.setObjectName("sheetDialog")
+        dialog.setWindowTitle("分类与标签")
+        dialog.setModal(True)
+        dialog.setFixedWidth(430)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(22, 22, 22, 18)
+        layout.setSpacing(12)
+        title = QLabel("整理这篇笔记")
+        title.setObjectName("dialogTitle")
+        layout.addWidget(title)
+        hint = QLabel("分类适合长期整理，标签适合跨分类搜索。")
+        hint.setObjectName("dialogSub")
+        layout.addWidget(hint)
+
+        folder_label = QLabel("分类")
+        folder_label.setObjectName("section")
+        layout.addWidget(folder_label)
+        folder = QLineEdit(self.draft_folder)
+        folder.setPlaceholderText("例如：随手记、旅行、工作")
+        layout.addWidget(folder)
+
+        tags_label = QLabel("标签")
+        tags_label.setObjectName("section")
+        layout.addWidget(tags_label)
+        tags = QLineEdit("，".join(self.draft_tags))
+        tags.setPlaceholderText("用逗号分隔，例如：灵感，咖啡，周末")
+        layout.addWidget(tags)
+        archived = QCheckBox("归档这篇笔记")
+        archived.setChecked(self.draft_archived)
+        layout.addWidget(archived)
+
+        actions = QHBoxLayout()
+        cancel = QPushButton("取消")
+        save = QPushButton("保存分类")
+        save.setObjectName("compactPrimary")
+        actions.addStretch()
+        actions.addWidget(cancel)
+        actions.addWidget(save)
+        layout.addLayout(actions)
+        cancel.clicked.connect(dialog.reject)
+        save.clicked.connect(dialog.accept)
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        self.draft_folder = folder.text().strip() or "随手记"
+        normalized = tags.text().replace("，", ",")
+        self.draft_tags = list(dict.fromkeys(tag.strip().lstrip("#") for tag in normalized.split(",") if tag.strip()))[:10]
+        self.draft_archived = archived.isChecked()
+        self.update_meta()
+        if self.current:
+            self.current.update(
+                folder=self.draft_folder,
+                tags=self.draft_tags,
+                archived=self.draft_archived,
+            )
+            self.persist()
+            self.refresh(self.current["id"])
+        self.status.setText("●  分类已更新")
+
+    def export_data(self):
+        default_name = os.path.expanduser(
+            f"~/Desktop/季节笔记备份-{date.today().isoformat()}.snotes"
+        )
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出完整备份", default_name, "季节笔记备份 (*.snotes)"
+        )
+        if not path:
+            return
+        if not path.endswith(".snotes"):
+            path += ".snotes"
+        try:
+            export_archive(path, self.notes)
+        except OSError as error:
+            QMessageBox.warning(self, "导出失败", str(error))
+            return
+        QMessageBox.information(self, "导出完成", "笔记和图片已经保存为一个完整备份。")
+
+    def import_data(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "从备份恢复", "", "季节笔记备份 (*.snotes)"
+        )
+        if not path:
+            return
+        answer = QMessageBox.question(
+            self,
+            "恢复备份",
+            "恢复后将以备份内容替换当前笔记。当前数据会先自动备份，是否继续？",
+        )
+        if answer != QMessageBox.Yes:
+            return
+        try:
+            create_daily_backup(self.notes, force=True)
+            self.notes = import_archive(path)
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, "恢复失败", str(error))
+            return
+        self.current = None
+        self.clear_filters()
+        self.status.setText("●  备份已恢复")
+
+    def cleanup_unused_attachments(self):
+        removed = cleanup_attachments(self.notes)
+        QMessageBox.information(
+            self,
+            "附件整理完成",
+            f"已清理 {len(removed)} 个未使用的图片文件。",
+        )
 
     def update_date_button(self):
         self.date_button.setText(
@@ -645,7 +830,9 @@ QCalendarWidget QTableView{{border:0;}}
         self.search.clear()
         self.selected_date = ""
         self.favorite_only = False
+        self.archive_only = False
         self.favorites_btn.setChecked(False)
+        self.archive_btn.setChecked(False)
         self.update_date_button()
         self.refresh()
 
@@ -655,9 +842,20 @@ QCalendarWidget QTableView{{border:0;}}
         items = [
             n
             for n in self.notes
-            if (not q or q in (n.get("title", "") + n.get("body", "") + n.get("date", "")).lower())
+            if (
+                not q
+                or q
+                in (
+                    n.get("title", "")
+                    + n.get("body", "")
+                    + n.get("date", "")
+                    + n.get("folder", "")
+                    + " ".join(n.get("tags", []))
+                ).lower()
+            )
             and (not ds or n.get("date", "") == ds)
             and (not self.favorite_only or n.get("favorite", False))
+            and bool(n.get("archived", False)) == self.archive_only
         ]
         self.list.blockSignals(True)
         self.list.clear()
@@ -669,11 +867,13 @@ QCalendarWidget QTableView{{border:0;}}
             self.list.setItemWidget(item, NoteListItem(n))
         self.list.blockSignals(False)
         self.visible = items
-        self.all_btn.setText(f"▤  全部笔记   {len(self.notes)}")
+        self.all_btn.setText(f"▤  {len(self.notes)}")
+        archived_count = sum(bool(note.get("archived", False)) for note in self.notes)
+        self.archive_btn.setText(f"⌁  归档 {archived_count}" if archived_count else "⌁  归档")
         self.list_count.setText(f"{len(items)} 篇")
         self.list_stack.setCurrentWidget(self.list if items else self.list_empty)
         if not items:
-            filtering = bool(q or ds or self.favorite_only)
+            filtering = bool(q or ds or self.favorite_only or self.archive_only)
             self.empty_title.setText("没有找到匹配的笔记" if filtering else "今天还没有笔记")
             self.empty_hint.setText(
                 "调整搜索、日期或收藏条件再试试。"
@@ -693,6 +893,9 @@ QCalendarWidget QTableView{{border:0;}}
         n = self.visible[row]
         self.current = n
         self.draft_date = n.get("date", date.today().isoformat())
+        self.draft_folder = n.get("folder", "随手记")
+        self.draft_tags = list(n.get("tags", []))
+        self.draft_archived = bool(n.get("archived", False))
         for index in range(self.list.count()):
             widget = self.list.itemWidget(self.list.item(index))
             if widget:
@@ -702,7 +905,7 @@ QCalendarWidget QTableView{{border:0;}}
             self.editor.setHtml(n["body_html"])
         else:
             self.editor.setPlainText(n.get("body", ""))
-        self.meta.setText(f"📅  {self.draft_date}  ·  {n.get('season', '春日')}")
+        self.update_meta(n.get("season", "春日"))
         self.favorite.setText("★ 已收藏" if n.get("favorite") else "☆ 收藏")
         self.loading_editor = False
         self.sync_format_buttons(self.editor.currentCharFormat())
@@ -712,9 +915,12 @@ QCalendarWidget QTableView{{border:0;}}
         self.loading_editor = True
         self.current = None
         self.draft_date = date.today().isoformat()
+        self.draft_folder = "随手记"
+        self.draft_tags = []
+        self.draft_archived = False
         self.title.clear()
         self.editor.clear()
-        self.meta.setText(f"📅  {self.draft_date}  ·  {self.theme}")
+        self.update_meta(self.theme)
         self.favorite.setText("☆ 收藏")
         self.loading_editor = False
         self.editor.setFocus()
@@ -740,11 +946,21 @@ QCalendarWidget QTableView{{border:0;}}
             "date": self.draft_date,
             "favorite": False,
         }
-        n.update(title=t, body=b, body_html=html, season=self.theme)
+        n.update(
+            title=t,
+            body=b,
+            body_html=html,
+            season=self.theme,
+            date=self.draft_date,
+            folder=self.draft_folder,
+            tags=self.draft_tags,
+            archived=self.draft_archived,
+        )
         if not self.current:
             self.notes.insert(0, n)
         self.current = n
         self.persist()
+        cleanup_attachments(self.notes)
         self.status.setText("●  已自动保存" if silent else "●  内容已保存")
         self.refresh(n["id"])
 
@@ -755,6 +971,7 @@ QCalendarWidget QTableView{{border:0;}}
             self.notes = [n for n in self.notes if n["id"] != self.current["id"]]
             self.current = None
             self.persist()
+            cleanup_attachments(self.notes)
             self.new_note()
             self.refresh()
 

@@ -49,3 +49,35 @@ class StorageTests(unittest.TestCase):
                 self.assertEqual(storage.load_settings(), settings)
                 path.write_text("broken", encoding="utf-8")
                 self.assertEqual(storage.load_settings(), {})
+
+    def test_full_archive_round_trip_with_attachment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            attachments = root / "attachments"
+            attachments.mkdir()
+            image = attachments / "image.png"
+            image.write_bytes(b"fake-image")
+            notes = [
+                {
+                    "id": "1",
+                    "title": "带图片的笔记",
+                    "body_html": f'<img src="{image}">',
+                }
+            ]
+            archive = root / "backup.snotes"
+            with patch.multiple(
+                storage,
+                APP_DATA_DIR=root,
+                ATTACHMENTS_DIR=attachments,
+                DATA=root / "notes.json",
+                SETTINGS=root / "settings.json",
+                BACKUP_DIR=root / "backups",
+            ):
+                storage.save_notes(notes)
+                storage.export_archive(archive, notes)
+                storage.save_notes([])
+                image.unlink()
+                restored = storage.import_archive(archive)
+                self.assertEqual(restored[0]["title"], "带图片的笔记")
+                self.assertTrue(image.exists())
+                self.assertIn(str(image), restored[0]["body_html"])

@@ -32,7 +32,15 @@ class NoteListItem(QFrame):
         preview.setMaximumHeight(20)
         layout.addWidget(preview)
 
-        meta = QLabel(f"{note.get('date', '')}   ·   {note.get('season', '春日')}")
+        tags = " ".join(f"#{tag}" for tag in note.get("tags", [])[:2])
+        meta_parts = [
+            note.get("date", ""),
+            note.get("season", "春日"),
+            note.get("folder", "随手记"),
+        ]
+        if tags:
+            meta_parts.append(tags)
+        meta = QLabel("   ·   ".join(meta_parts))
         meta.setObjectName("noteItemMeta")
         layout.addWidget(meta)
 
