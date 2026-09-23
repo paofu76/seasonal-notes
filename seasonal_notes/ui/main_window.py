@@ -236,7 +236,8 @@ class App(QMainWindow):
         self.search.setObjectName("search")
         self.search.setPlaceholderText("搜索标题、正文或日期…")
         self.search.returnPressed.connect(self.refresh)
-        bar.addWidget(self.search, 1)
+        self.search.setFixedWidth(286)
+        bar.addWidget(self.search)
         self.date_button = QPushButton("选择日期  ▾")
         self.date_button.setObjectName("dateButton")
         self.date_button.setMinimumWidth(132)
@@ -250,7 +251,8 @@ class App(QMainWindow):
         self.reset.setObjectName("quiet")
         self.reset.clicked.connect(self.clear_filters)
         bar.addWidget(self.reset)
-        ml.addWidget(search_card)
+        search_card.setMaximumWidth(680)
+        ml.addWidget(search_card, alignment=Qt.AlignLeft)
         soft_shadow(search_card, 18)
         split = QSplitter(Qt.Horizontal)
         split.setObjectName("contentSplit")
@@ -308,13 +310,19 @@ class App(QMainWindow):
         right = QWidget()
         right.setObjectName("editorCard")
         rl = QVBoxLayout(right)
-        rl.setContentsMargins(22, 18, 22, 18)
-        rl.setSpacing(9)
+        rl.setContentsMargins(20, 12, 20, 14)
+        rl.setSpacing(6)
         top = QHBoxLayout()
+        top.setSpacing(7)
         self.title = QLineEdit()
         self.title.setPlaceholderText("无标题笔记")
         self.title.setObjectName("title")
         top.addWidget(self.title, 1)
+        self.meta = QPushButton("选择日期 · 春日")
+        self.meta.setObjectName("meta")
+        self.meta.setToolTip("修改这篇笔记的记录日期")
+        self.meta.clicked.connect(self.choose_note_date)
+        top.addWidget(self.meta)
         self.favorite = QPushButton("☆ 收藏")
         self.favorite.setObjectName("quiet")
         self.favorite.clicked.connect(self.toggle_favorite)
@@ -324,11 +332,6 @@ class App(QMainWindow):
         self.organize.clicked.connect(self.organize_note)
         top.addWidget(self.organize)
         rl.addLayout(top)
-        self.meta = QPushButton("选择一篇笔记，或开始新的记录")
-        self.meta.setObjectName("meta")
-        self.meta.setToolTip("修改这篇笔记的记录日期")
-        self.meta.clicked.connect(self.choose_note_date)
-        rl.addWidget(self.meta)
         tools = QHBoxLayout()
         tools.setSpacing(6)
         self.format_buttons = {}
@@ -530,7 +533,7 @@ QWidget{{font-family:"SF Pro Display","PingFang SC",Arial;color:{text};font-size
 #status{{background:{selected_glass};color:{text};border-radius:14px;padding:7px 11px;font-size:11px;font-weight:700;}}
 #quote{{background:{selected_glass};border-radius:16px;padding:9px 14px;color:{text};font-size:11px;font-weight:650;}}
 #meta,#muted{{color:{quiet_text};}}
-#meta{{background:transparent;text-align:left;padding:3px 2px;font-size:11px;}}
+#meta{{background:transparent;text-align:left;padding:5px 7px;font-size:11px;}}
 #section{{font-size:9px;font-weight:800;color:{quiet_text};margin:6px 2px;letter-spacing:2px;}}
 QPushButton,QToolButton{{border:0;border-radius:12px;padding:8px 13px;background:{soft_glass};color:{text};font-weight:650;}}
 QPushButton:hover,QToolButton:hover{{background:{selected_glass};}}
@@ -542,10 +545,10 @@ QToolButton:checked{{background:{accent};color:white;}}
 #season:checked,#filterButton:checked{{background:{accent};color:white;font-weight:800;}}
 #motionToggle{{background:{soft_glass};color:{quiet_text};font-size:10px;padding:9px 11px;}}
 #moreButton{{min-width:26px;padding:9px 8px;background:{soft_glass};}}
-#searchCard{{background:{sidebar_glass};border:0;border-radius:20px;}}
+#searchCard{{background:{sidebar_glass};border:0;border-radius:16px;}}
 #listCard{{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 {panel_glass},stop:1 {selected_glass});border:0;border-radius:26px;}}
 #editorCard{{background:{panel_glass};border:0;border-radius:26px;}}
-#search,#dateButton{{background:rgba(255,255,255,150);border:0;border-radius:12px;padding:9px 12px;selection-background-color:{accent};}}
+#search,#dateButton{{background:rgba(255,255,255,150);border:0;border-radius:11px;padding:8px 11px;selection-background-color:{accent};}}
 #dateButton{{text-align:left;}}
 #dateButton[activeDate="true"]{{background:{selected_glass};color:{accent};font-weight:800;}}
 #search{{min-height:20px;}}

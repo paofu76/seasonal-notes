@@ -5,8 +5,8 @@
 ## 功能
 
 - 春、夏、秋、冬主题切换
-- 四季独立高清生活场景：樱花创作间、海边冲浪屋、秋日艺术校园、城市放映夜
-- 图片网格局部变形模拟花枝、树叶和纱帘随风摆动，配合水面波动、飘落花瓣与分层雪景（图片驱动，非实时 3D）
+- 四季独立自然风景壁纸：春日雨岸、夏日湖畔、秋日枫林、冬日雪湖
+- 低速镜头轻移保持真实场景稳定，并以细雨、流动日光、飘落枫叶和远近分层雪景营造季节氛围
 - 沉浸式旅行手账界面：磨砂纸张、彩色便签、杂志式标题和场景适配配色
 - 动态氛围支持手动关闭和窗口失焦自动暂停
 - 笔记新建、编辑、保存、收藏及可恢复的废纸篓
@@ -51,7 +51,7 @@ seasonal_notes/
   application.py               Qt 应用生命周期
   storage.py                   存储、首次迁移和原子写入（不依赖 Qt）
   themes.py                    四季配色配置
-  assets/*.png                  四张独立四季场景素材，随桌面应用分发
+  assets/*.png                  四季壁纸与界面素材，随桌面应用分发
   ui/
     main_window.py             主窗口、对话框与笔记操作
     note_item.py               笔记摘要列表组件
@@ -59,7 +59,7 @@ seasonal_notes/
     note_calendar.py           带笔记数量标记的月历组件
     table_preview.py           表格预览
     animations.py              四季动画与胶囊
-    wind_scene.py              局部风动、水面与天气渲染
+    wind_scene.py              四季镜头微移与天气氛围渲染
 tests/                         隔离存储测试
 .github/workflows/tests.yml    GitHub 自动检查
 pyproject.toml                 安装入口、依赖和开发工具配置
