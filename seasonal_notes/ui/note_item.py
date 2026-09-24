@@ -11,8 +11,8 @@ class NoteListItem(QFrame):
         self.setProperty("selected", False)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(5)
+        layout.setContentsMargins(10, 7, 10, 7)
+        layout.setSpacing(3)
 
         top = QHBoxLayout()
         top.setSpacing(8)
@@ -29,7 +29,7 @@ class NoteListItem(QFrame):
         preview_text = " ".join((note.get("body") or "").split()) or "还没有写下内容"
         preview = QLabel(preview_text)
         preview.setObjectName("notePreview")
-        preview.setMaximumHeight(20)
+        preview.setMaximumHeight(17)
         layout.addWidget(preview)
 
         tags = " ".join(f"#{tag}" for tag in note.get("tags", [])[:2])

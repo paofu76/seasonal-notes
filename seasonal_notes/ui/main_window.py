@@ -122,7 +122,7 @@ class App(QMainWindow):
 
         self.side = QWidget()
         self.side.setObjectName("topDock")
-        self.side.setFixedHeight(72)
+        self.side.setFixedHeight(64)
         sl = QHBoxLayout(self.side)
         sl.setContentsMargins(18, 11, 12, 11)
         sl.setSpacing(7)
@@ -186,7 +186,7 @@ class App(QMainWindow):
         self.new = QPushButton("＋  记录今天")
         self.new.setObjectName("primary")
         self.new.clicked.connect(self.new_note)
-        self.new.setFixedHeight(44)
+        self.new.setFixedHeight(38)
         sl.addWidget(self.new)
         outer.addWidget(self.side)
         soft_shadow(self.side, 22)
@@ -261,8 +261,8 @@ class App(QMainWindow):
         left = QWidget()
         left.setObjectName("listCard")
         ll = QVBoxLayout(left)
-        ll.setContentsMargins(14, 15, 14, 14)
-        ll.setSpacing(10)
+        ll.setContentsMargins(12, 12, 12, 12)
+        ll.setSpacing(7)
         list_head = QHBoxLayout()
         list_title = QLabel("最近记录")
         list_title.setObjectName("cardTitle")
@@ -281,7 +281,7 @@ class App(QMainWindow):
         self.list_stack.setObjectName("listStack")
         self.list = QListWidget()
         self.list.setObjectName("noteList")
-        self.list.setSpacing(4)
+        self.list.setSpacing(3)
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list.currentRowChanged.connect(self.pick)
         self.list_stack.addWidget(self.list)
@@ -340,6 +340,7 @@ class App(QMainWindow):
             ("↷", "重做（⇧⌘Z）", lambda: self.editor.redo()),
         ]:
             button = QToolButton()
+            button.setObjectName("editorTool")
             button.setText(text)
             button.setToolTip(tooltip)
             button.clicked.connect(fn)
@@ -353,6 +354,7 @@ class App(QMainWindow):
             ("▧ 图片", self.image),
         ]:
             b = QToolButton()
+            b.setObjectName("editorTool")
             b.setText(text)
             b.clicked.connect(fn)
             if text in ("B", "I", "U"):
@@ -535,9 +537,10 @@ QWidget{{font-family:"SF Pro Display","PingFang SC",Arial;color:{text};font-size
 #meta,#muted{{color:{quiet_text};}}
 #meta{{background:transparent;text-align:left;padding:5px 7px;font-size:11px;}}
 #section{{font-size:9px;font-weight:800;color:{quiet_text};margin:6px 2px;letter-spacing:2px;}}
-QPushButton,QToolButton{{border:0;border-radius:12px;padding:8px 13px;background:{soft_glass};color:{text};font-weight:650;}}
+QPushButton,QToolButton{{border:0;border-radius:11px;padding:6px 10px;background:{soft_glass};color:{text};font-weight:650;}}
 QPushButton:hover,QToolButton:hover{{background:{selected_glass};}}
 QToolButton:checked{{background:{accent};color:white;}}
+#editorTool{{padding:4px 8px;border-radius:10px;min-height:22px;font-size:12px;}}
 #primary,#compactPrimary{{background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {accent},stop:1 {accent2});color:white;font-weight:800;}}
 #primary:hover,#compactPrimary:hover{{background:{accent2};}}
 #sideItem,#season,#filterButton{{background:rgba(255,255,255,65);padding:9px 11px;border-radius:13px;}}
@@ -563,14 +566,14 @@ QToolButton:checked{{background:{accent};color:white;}}
 #noteItem{{background:rgba(255,255,255,70);border-radius:15px;}}
 #noteItem:hover{{background:rgba(255,255,255,145);}}
 #noteItem[selected="true"]{{background:rgba(255,255,255,205);}}
-#noteItemTitle{{font-size:14px;font-weight:750;}}
-#notePreview{{font-size:12px;color:{quiet_text};}}
-#noteItemMeta{{font-size:10px;color:{accent};font-weight:700;}}
-#noteFavorite{{color:{accent};font-size:13px;}}
+#noteItemTitle{{font-size:13px;font-weight:750;}}
+#notePreview{{font-size:11px;color:{quiet_text};}}
+#noteItemMeta{{font-size:9px;color:{accent};font-weight:700;}}
+#noteFavorite{{color:{accent};font-size:12px;}}
 #emptyIcon{{font-size:30px;color:{accent};}}
 #emptyTitle{{font-size:15px;font-weight:800;}}
 #emptyHint{{font-size:12px;color:{quiet_text};}}
-#editor{{background:rgba(255,255,255,112);border:0;border-radius:18px;padding:18px;font-size:15px;selection-background-color:{selected};}}
+#editor{{background:rgba(255,255,255,112);border:0;border-radius:18px;padding:18px;font-size:18px;selection-background-color:{selected};}}
 QSplitter::handle{{background:transparent;}}
 QDialog#sheetDialog{{background:{panel};}}
 QDialog QLineEdit{{background:{selected};border:0;border-radius:11px;padding:9px 11px;selection-background-color:{accent};}}
